@@ -157,10 +157,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <Landmark className="w-8 h-8" />
           </div>
           <h1 className="text-xl font-black tracking-tighter text-[#141414] font-sans text-center uppercase">
-            CRANE-OPS <span className="text-amber-600">v2.4</span>
+            CRANE-OPS <span className="text-amber-600">v1.0</span>
           </h1>
           <p className="text-[10px] text-zinc-600 mt-1 uppercase tracking-widest font-mono font-bold">
-            BAY 01 - NORTH WING SYSTEM TERMINAL
+            Crane Scheduling & Shift Planning System
           </p>
         </div>
 
