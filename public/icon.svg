@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Rounded square background with thick border to match Neo-brutalist theme -->
+  <rect x="16" y="16" width="480" height="480" rx="40" fill="#f59e0b" stroke="#141414" stroke-width="24"/>
+  
+  <!-- Outer grid pattern inside -->
+  <path d="M16 120h480M16 240h480M16 360h480M120 16v480M240 16v480M360 16v480" stroke="#141414" stroke-width="2" stroke-opacity="0.15"/>
+  
+  <!-- Heavy Industrial Crane Gantry Girders -->
+  <!-- Left Column -->
+  <rect x="70" y="320" width="40" height="130" fill="#141414" rx="4"/>
+  <!-- Right Column -->
+  <rect x="402" y="320" width="40" height="130" fill="#141414" rx="4"/>
+  
+  <!-- Main Horizontal Gantry Girder -->
+  <rect x="60" y="150" width="392" height="50" fill="#141414" rx="6" stroke="#141414" stroke-width="4"/>
+  <!-- Inner yellow highlight band on gantry -->
+  <rect x="80" y="165" width="352" height="20" fill="#f59e0b" rx="2"/>
+  
+  <!-- Truss lattice lines (industrial look) -->
+  <path d="M90 150l30 50m20-50l30 50m20-50l30 50m20-50l30 50m20-50l30 50m20-50l30 50m20-50l30 50m20-50l30 50" stroke="#141414" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Crane Trolley (crab) -->
+  <rect x="216" y="180" width="80" height="40" rx="4" fill="#ef4444" stroke="#141414" stroke-width="8"/>
+  
+  <!-- Hoist Rope & Hook -->
+  <line x1="256" y1="220" x2="256" y2="340" stroke="#141414" stroke-width="12" stroke-dasharray="16 8"/>
+  
+  <!-- Heavy Duty Hook block -->
+  <circle cx="256" cy="345" r="14" fill="#141414"/>
+  <path d="M256 355c-15 0-25-10-25-22s10-15 15-15" fill="none" stroke="#141414" stroke-width="10" stroke-linecap="round"/>
+  
+  <!-- Industrial Safety Stripes at the bottom -->
+  <g fill="#141414">
+    <path d="M40 430l30 30h30l-30-30z"/>
+    <path d="M100 430l30 30h30l-30-30z"/>
+    <path d="M160 430l30 30h30l-30-30z"/>
+    <path d="M220 430l30 30h30l-30-30z"/>
+    <path d="M280 430l30 30h30l-30-30z"/>
+    <path d="M340 430l30 30h30l-30-30z"/>
+    <path d="M400 430l30 30h30l-30-30z"/>
+  </g>
+</svg>

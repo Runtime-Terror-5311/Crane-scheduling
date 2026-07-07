@@ -1,0 +1,6 @@
+{
+  "name": "Crane Scheduling & Shift Planning System",
+  "description": "Industrial crane scheduling, shift planning, and real-time visualization system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

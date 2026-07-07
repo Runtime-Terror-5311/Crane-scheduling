@@ -1,0 +1,43 @@
+import { ShiftType } from "../types.js";
+
+const SHIFT_WINDOWS: Record<ShiftType, [number, number]> = {
+  "Shift A": [6 * 60, 14 * 60], // 06:00–14:00
+  "Shift B": [14 * 60, 22 * 60], // 14:00–22:00
+  "Shift C": [22 * 60, 30 * 60], // 22:00–06:00 next day
+  "General Shift": [9 * 60, 18 * 60 + 30], // 09:00–18:30
+};
+
+export function parseTimeToMinutes(t: string): number {
+  if (!t) return 0;
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+export function getCurrentShift(date: Date): ShiftType {
+  const mins = date.getHours() * 60 + date.getMinutes();
+  if (mins >= 6 * 60 && mins < 14 * 60) {
+    return "Shift A";
+  } else if (mins >= 14 * 60 && mins < 22 * 60) {
+    return "Shift B";
+  } else {
+    return "Shift C";
+  }
+}
+
+export function isScheduleInShiftBoundary(startTimeStr: string, endTimeStr: string, shift: ShiftType): boolean {
+  const sMins = parseTimeToMinutes(startTimeStr);
+  const eMins = parseTimeToMinutes(endTimeStr);
+  
+  const window = SHIFT_WINDOWS[shift];
+  if (!window) return true;
+  const [wStart, wEnd] = window;
+  
+  if (shift === "Shift C") {
+    const normStart = sMins < 12 * 60 ? sMins + 24 * 60 : sMins;
+    const normEnd = eMins < 12 * 60 ? eMins + 24 * 60 : eMins;
+    return normStart >= wStart && normEnd <= wEnd;
+  } else {
+    const normEnd = eMins < sMins ? eMins + 24 * 60 : eMins;
+    return sMins >= wStart && normEnd <= wEnd;
+  }
+}
