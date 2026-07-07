@@ -365,16 +365,20 @@ function scheduleRequestsInternal(
     // Limit check: Weight exceeds specified/max crane capacity
     const reqWeight   = req.estimatedWeight;
     if (req.mandatoryCrane !== "Any") {
-      const craneCapacities: Record<string, number> = { A1: 50, A2: 32, A3: 16 };
-      const cap = craneCapacities[req.mandatoryCrane] || 50;
+      const craneObj = workingCranes[req.mandatoryCrane];
+      const cap = craneObj ? craneObj.capacity : 50;
       if (reqWeight > cap) {
         warnings.push(`Request ${req.id} REJECTED: requested weight (${reqWeight} Tons) exceeds the capacity of selected crane ${req.mandatoryCrane} (${cap} Tons).`);
         rejectedIds.push(req.id);
         continue;
       }
     } else {
-      if (reqWeight > 50) {
-        warnings.push(`Request ${req.id} REJECTED: requested weight (${reqWeight} Tons) exceeds the maximum capacity of any crane on the shop floor (50 Tons).`);
+      const homeCrane = req.area as CraneId;
+      const borrowList = BORROW_PRIORITY[homeCrane] || [];
+      const candidates = [homeCrane, ...borrowList];
+      const maxCap = Math.max(...candidates.map(cid => workingCranes[cid]?.capacity || 0));
+      if (reqWeight > maxCap) {
+        warnings.push(`Request ${req.id} REJECTED: requested weight (${reqWeight} Tons) exceeds the maximum capacity of any available candidate crane in area/borrow set (${maxCap} Tons).`);
         rejectedIds.push(req.id);
         continue;
       }

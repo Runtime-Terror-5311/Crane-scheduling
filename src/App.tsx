@@ -704,8 +704,11 @@ export default function App() {
                 onRequestAdded={handleRequestAdded}
                 onRequestDeleted={handleRequestDeleted}
                 onRequestSubmittedBulk={handleRequestSubmittedBulk}
-                onRefresh={() => reloadDatabase(user)}
+                onRefresh={() => { if (user) reloadDatabase(user); }}
                 initialSubView="new-request"
+                onUpdateCrane={handleUpdateCrane}
+                onCreateCrane={handleCreateCrane}
+                onDeleteCrane={handleDeleteCrane}
               />
             </div>
           )}

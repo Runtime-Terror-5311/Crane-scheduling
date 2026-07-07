@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { MongoClient, Db } from "mongodb";
+import bcrypt from "bcryptjs";
 import { User, Crane, CraneRequest, Schedule, ShiftReport, AuditLog, SystemSettings } from "../../types.js";
 
 const DB_DIR = path.join(process.cwd(), ".data");
@@ -16,20 +17,126 @@ export interface DatabaseState {
   settings: SystemSettings;
 }
 
-const getFallbackState = (): DatabaseState => ({
-  users: [],
-  cranes: [],
-  requests: [],
-  schedules: [],
-  shiftReports: [],
-  auditLogs: [],
-  settings: {
-    bufferTimeMinutes: 5,
-    maxCranes: 3,
-    maintenanceWindowOpen: false,
-    systemLocked: false,
-  },
-});
+const getFallbackState = (): DatabaseState => {
+  const salt = bcrypt.genSaltSync(10);
+  const adminHash = bcrypt.hashSync("AdminPassword123", salt);
+  const userHash = bcrypt.hashSync("Password123", salt);
+
+  return {
+    users: [
+      {
+        employeeId: "EMP001",
+        name: "System Master",
+        role: "Admin",
+        area: null,
+        phone: "+91-9988776655",
+        email: "admin@craneops.com",
+        passwordHash: adminHash,
+      },
+      {
+        employeeId: "EMP101",
+        name: "A. K. Sharma",
+        role: "Area User",
+        area: 1,
+        craneNo: "A1",
+        phone: "+91-9876543210",
+        email: "sharma@craneops.com",
+        passwordHash: userHash,
+      },
+      {
+        employeeId: "EMP102",
+        name: "S. N. Rao",
+        role: "Area User",
+        area: 2,
+        craneNo: "A2",
+        phone: "+91-9876543211",
+        email: "rao@craneops.com",
+        passwordHash: userHash,
+      },
+      {
+        employeeId: "EMP103",
+        name: "V. K. Singh",
+        role: "Area User",
+        area: 3,
+        craneNo: "A3",
+        phone: "+91-9876543212",
+        email: "singh@craneops.com",
+        passwordHash: userHash,
+      },
+      {
+        employeeId: "EMP104",
+        name: "D. K. Patel",
+        role: "Area User",
+        area: 1,
+        craneNo: "D4",
+        phone: "+91-9876543213",
+        email: "patel@craneops.com",
+        passwordHash: userHash,
+      },
+    ],
+    cranes: [
+      {
+        id: "A1",
+        name: "Gantry A1",
+        capacity: 10,
+        minColumn: 1,
+        maxColumn: 30,
+        allocatedMinColumn: 1,
+        allocatedMaxColumn: 10,
+        currentColumn: 5,
+        status: "Available",
+        maintenanceNotes: "",
+      },
+      {
+        id: "A2",
+        name: "Gantry A2",
+        capacity: 25,
+        minColumn: 1,
+        maxColumn: 30,
+        allocatedMinColumn: 11,
+        allocatedMaxColumn: 20,
+        currentColumn: 15,
+        status: "Available",
+        maintenanceNotes: "",
+      },
+      {
+        id: "A3",
+        name: "Gantry A3",
+        capacity: 10,
+        minColumn: 1,
+        maxColumn: 30,
+        allocatedMinColumn: 21,
+        allocatedMaxColumn: 30,
+        currentColumn: 25,
+        status: "Available",
+        maintenanceNotes: "",
+      },
+      {
+        id: "D4",
+        name: "Gantry D4",
+        capacity: 63,
+        auxCapacity: 10,
+        minColumn: 1,
+        maxColumn: 30,
+        allocatedMinColumn: 1,
+        allocatedMaxColumn: 30,
+        currentColumn: 15,
+        status: "Available",
+        maintenanceNotes: "D4 Main Hoist: 63 Ton, Aux Hoist: 10 Ton",
+      },
+    ],
+    requests: [],
+    schedules: [],
+    shiftReports: [],
+    auditLogs: [],
+    settings: {
+      bufferTimeMinutes: 5,
+      maxCranes: 4,
+      maintenanceWindowOpen: false,
+      systemLocked: false,
+    },
+  };
+};
 
 export let cachedState: DatabaseState | null = null;
 export let isMongoConnected = false;
@@ -152,6 +259,14 @@ export const refreshStateFromMongo = async (): Promise<void> => {
 
   try {
     const users = await mongoDb.collection("users").find().toArray();
+
+    if (users.length === 0) {
+      console.log("MongoDB is connected but empty. Seeding initial dummy dataset...");
+      cachedState = getFallbackState();
+      await persistStateToMongo();
+      return;
+    }
+
     const cranes = await mongoDb.collection("cranes").find().toArray();
     const requests = await mongoDb.collection("requests").find().toArray();
     const schedules = await mongoDb.collection("schedules").find().toArray();

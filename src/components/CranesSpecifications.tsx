@@ -72,8 +72,16 @@ export default function CranesSpecifications({ cranes, users, selectedBay }: Cra
                     </span>
                     <div className="flex justify-between">
                       <span className="text-zinc-500">Max Hoist Capacity:</span>
-                      <span className="text-[#141414] font-black">{crane.capacity} TONS</span>
+                      <span className="text-[#141414] font-black">
+                        {crane.auxCapacity ? `${crane.capacity} TONS (Main)` : `${crane.capacity} TONS`}
+                      </span>
                     </div>
+                    {crane.auxCapacity && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Aux Hoist Capacity:</span>
+                        <span className="text-[#141414] font-black">{crane.auxCapacity} TONS</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-zinc-500">Operating Zone:</span>
                       <span className="text-[#141414] font-black">

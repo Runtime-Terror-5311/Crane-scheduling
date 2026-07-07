@@ -22,6 +22,7 @@ export interface Crane {
   id: string; // "A1", "A2", "A3"
   name: string;
   capacity: number; // in Ton
+  auxCapacity?: number; // auxiliary hoist capacity in Ton
   minColumn: number; // range min
   maxColumn: number; // range max
   allocatedMinColumn?: number;

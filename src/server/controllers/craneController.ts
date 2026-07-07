@@ -9,7 +9,7 @@ export const getCranes = (req: Request, res: Response): void => {
 
 export const updateCrane = (req: Request, res: Response): void => {
   const { id } = req.params;
-  const { name, capacity, minColumn, maxColumn, allocatedMinColumn, allocatedMaxColumn, currentColumn, status, maintenanceNotes } = req.body;
+  const { name, capacity, minColumn, maxColumn, allocatedMinColumn, allocatedMaxColumn, currentColumn, status, maintenanceNotes, auxCapacity } = req.body;
   const adminUser = (req as any).user;
 
   const db = readDB();
@@ -32,6 +32,7 @@ export const updateCrane = (req: Request, res: Response): void => {
     currentColumn: typeof currentColumn === "number" ? currentColumn : oldCrane.currentColumn,
     status: status || oldCrane.status,
     maintenanceNotes: typeof maintenanceNotes === "string" ? maintenanceNotes : oldCrane.maintenanceNotes,
+    auxCapacity: typeof auxCapacity === "number" ? auxCapacity : (auxCapacity === null ? undefined : oldCrane.auxCapacity),
   };
 
   db.cranes[craneIndex] = updatedCrane;
@@ -50,7 +51,7 @@ export const updateCrane = (req: Request, res: Response): void => {
 };
 
 export const createCrane = (req: Request, res: Response): void => {
-  const { id, name, capacity, minColumn, maxColumn, allocatedMinColumn, allocatedMaxColumn, currentColumn } = req.body;
+  const { id, name, capacity, minColumn, maxColumn, allocatedMinColumn, allocatedMaxColumn, currentColumn, auxCapacity } = req.body;
   const adminUser = (req as any).user;
 
   if (!id || !name || !capacity) {
@@ -76,6 +77,7 @@ export const createCrane = (req: Request, res: Response): void => {
     currentColumn: currentColumn !== undefined ? Number(currentColumn) : 15,
     status: "Available",
     maintenanceNotes: "",
+    auxCapacity: auxCapacity !== undefined && auxCapacity !== null ? Number(auxCapacity) : undefined,
   };
 
   db.cranes.push(newCrane);

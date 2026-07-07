@@ -94,6 +94,7 @@ export default function DashboardAdmin({
   const [addCraneId, setAddCraneId] = useState("");
   const [addCraneName, setAddCraneName] = useState("");
   const [addCraneCap, setAddCraneCap] = useState<number>(15);
+  const [addCraneAuxCap, setAddCraneAuxCap] = useState<string>("");
   const [addCraneCol, setAddCraneCol] = useState<number>(15);
   const [addCraneMinCol, setAddCraneMinCol] = useState<number>(1);
   const [addCraneMaxCol, setAddCraneMaxCol] = useState<number>(30);
@@ -105,6 +106,7 @@ export default function DashboardAdmin({
   const [editingCraneId, setEditingCraneId] = useState<string | null>(null);
   const [craneName, setCraneName] = useState("");
   const [craneCap, setCraneCap] = useState<number>(10);
+  const [craneAuxCap, setCraneAuxCap] = useState<string>("");
   const [craneCol, setCraneCol] = useState<number>(5);
   const [craneStatus, setCraneStatus] = useState<"Available" | "Maintenance" | "Busy">("Available");
   const [craneNotes, setCraneNotes] = useState("");
@@ -250,6 +252,7 @@ export default function DashboardAdmin({
     onUpdateCrane(id, {
       name: craneName,
       capacity: Number(craneCap),
+      auxCapacity: craneAuxCap !== "" ? Number(craneAuxCap) : null as any,
       currentColumn: Number(craneCol),
       status: craneStatus,
       maintenanceNotes: craneNotes,
@@ -265,6 +268,7 @@ export default function DashboardAdmin({
     setEditingCraneId(crane.id);
     setCraneName(crane.name || crane.id);
     setCraneCap(crane.capacity);
+    setCraneAuxCap(crane.auxCapacity !== undefined ? String(crane.auxCapacity) : "");
     setCraneCol(crane.currentColumn);
     setCraneStatus(crane.status);
     setCraneNotes(crane.maintenanceNotes);
@@ -286,6 +290,7 @@ export default function DashboardAdmin({
       id: addCraneId,
       name: addCraneName,
       capacity: Number(addCraneCap),
+      auxCapacity: addCraneAuxCap !== "" ? Number(addCraneAuxCap) : undefined,
       currentColumn: Number(addCraneCol),
       minColumn: Number(addCraneMinCol),
       maxColumn: Number(addCraneMaxCol),
@@ -297,6 +302,7 @@ export default function DashboardAdmin({
       setAddCraneId("");
       setAddCraneName("");
       setAddCraneCap(15);
+      setAddCraneAuxCap("");
       setAddCraneCol(15);
       setAddCraneMinCol(1);
       setAddCraneMaxCol(30);
@@ -686,13 +692,23 @@ export default function DashboardAdmin({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Hoisting Capacity (Tons)</label>
+                    <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Main Hoist Capacity (Tons)</label>
                     <input
                       type="number"
                       value={addCraneCap}
                       onChange={(e) => setAddCraneCap(Number(e.target.value))}
+                      className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Aux Hoist Capacity (Tons, Optional)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 10"
+                      value={addCraneAuxCap}
+                      onChange={(e) => setAddCraneAuxCap(e.target.value)}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
                     />
                   </div>
@@ -785,9 +801,9 @@ export default function DashboardAdmin({
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-1.5">
                       <div>
-                        <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Hoisting Cap (T)</label>
+                        <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Main Cap (T)</label>
                         <input
                           type="number"
                           value={craneCap}
@@ -796,7 +812,17 @@ export default function DashboardAdmin({
                         />
                       </div>
                       <div>
-                        <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Current Col (1-30)</label>
+                        <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Aux Cap (T)</label>
+                        <input
+                          type="number"
+                          placeholder="None"
+                          value={craneAuxCap}
+                          onChange={(e) => setCraneAuxCap(e.target.value)}
+                          className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Current Col</label>
                         <input
                           type="number"
                           value={craneCol}
@@ -894,6 +920,12 @@ export default function DashboardAdmin({
                       <span>Position:</span>
                       <span className="font-black text-[#141414]">Column {crane.currentColumn}</span>
                     </div>
+                    {crane.auxCapacity && (
+                      <div className="flex justify-between">
+                        <span>Aux Hoist:</span>
+                        <span className="font-black text-[#141414]">{crane.auxCapacity} Tons</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span>Allocated Area:</span>
                       <span className="text-[#141414]">

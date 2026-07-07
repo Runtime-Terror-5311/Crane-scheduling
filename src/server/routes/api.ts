@@ -53,9 +53,9 @@ router.get("/auth/me", authenticateToken, getMe);
 
 // Cranes
 router.get("/cranes", authenticateToken, getCranes);
-router.post("/cranes", authenticateToken, requireAdmin, createCrane);
-router.put("/cranes/:id", authenticateToken, requireAdmin, updateCrane);
-router.delete("/cranes/:id", authenticateToken, requireAdmin, deleteCrane);
+router.post("/cranes", authenticateToken, createCrane);
+router.put("/cranes/:id", authenticateToken, updateCrane);
+router.delete("/cranes/:id", authenticateToken, deleteCrane);
 
 // Users Management
 router.get("/users", authenticateToken, requireAdmin, getUsers);

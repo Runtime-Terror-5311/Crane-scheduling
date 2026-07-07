@@ -35,11 +35,6 @@ interface OperationsListProps {
   setSelectedAreaFilter: (val: string) => void;
 }
 
-const CRANE_DETAILS: Record<string, { name: string; capacity: string; range: string; color: string; bg: string }> = {
-  A1: { name: "Gantry A1", capacity: "50 Tons (Heavy Duty)", range: "Bay Cols 1 - 10", color: "border-red-500 text-red-700", bg: "bg-red-50" },
-  A2: { name: "Gantry A2", capacity: "32 Tons (Medium Duty)", range: "Bay Cols 11 - 20", color: "border-amber-500 text-amber-700", bg: "bg-amber-50" },
-  A3: { name: "Gantry A3", capacity: "16 Tons (Light Utility)", range: "Bay Cols 21 - 30", color: "border-blue-500 text-blue-700", bg: "bg-blue-50" },
-};
 
 export default function OperationsList({ 
   cranes,
@@ -52,6 +47,55 @@ export default function OperationsList({
   selectedAreaFilter,
   setSelectedAreaFilter
 }: OperationsListProps) {
+  const getCraneDisplayDetails = (cid: string) => {
+    if (cid === "Any") {
+      return {
+        name: "General / Unspecified",
+        capacity: "Any Crane",
+        range: "Plant Wide",
+        color: "border-zinc-500 text-zinc-700",
+        bg: "bg-zinc-100"
+      };
+    }
+
+    const found = cranes.find(c => c.id.toUpperCase() === cid.toUpperCase());
+    const isHeavy = found ? found.capacity >= 50 : (cid.endsWith("1") || cid.toUpperCase() === "D4");
+    const isMedium = found ? (found.capacity >= 20 && found.capacity < 50) : cid.endsWith("2");
+    
+    let capStr = "";
+    if (found) {
+      if (found.auxCapacity) {
+        capStr = `Main: ${found.capacity}T / Aux: ${found.auxCapacity}T`;
+      } else {
+        capStr = `${found.capacity} Tons`;
+      }
+    } else {
+      if (cid.toUpperCase() === "D4") {
+        capStr = "Main: 63T / Aux: 10T";
+      } else if (cid.toUpperCase() === "A1") {
+        capStr = "10 Tons (Light Utility)";
+      } else if (cid.toUpperCase() === "A2") {
+        capStr = "25 Tons (Medium Duty)";
+      } else if (cid.toUpperCase() === "A3") {
+        capStr = "10 Tons (Light Utility)";
+      } else {
+        capStr = "10 Tons";
+      }
+    }
+    
+    let rangeStr = found 
+      ? `Cols ${found.allocatedMinColumn !== undefined ? found.allocatedMinColumn : (found.minColumn || 1)} - ${found.allocatedMaxColumn !== undefined ? found.allocatedMaxColumn : (found.maxColumn || 30)}`
+      : (cid.toUpperCase() === "A1" ? "Bay Cols 1 - 10" : cid.toUpperCase() === "A2" ? "Bay Cols 11 - 20" : "Bay Cols 21 - 30");
+    
+    return {
+      name: found ? found.name : `Gantry ${cid}`,
+      capacity: capStr,
+      range: rangeStr,
+      color: isHeavy ? "border-red-500 text-red-700" : isMedium ? "border-amber-500 text-amber-700" : "border-blue-500 text-blue-700",
+      bg: isHeavy ? "bg-red-50" : isMedium ? "bg-amber-50" : "bg-blue-50"
+    };
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPriority, setSelectedPriority] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"scheduled" | "conflicts" | "history">("scheduled");
@@ -87,10 +131,16 @@ export default function OperationsList({
 
     // 3. Check estimated weight against crane capacity
     const getCraneCapacity = (id: string): number => {
-      if (id === "Any") return 50;
-      if (id.endsWith("1")) return 50;
-      if (id.endsWith("2")) return 32;
-      return 16;
+      if (id === "Any") {
+        if (cranes && cranes.length > 0) {
+          return Math.max(...cranes.map(c => c.capacity));
+        }
+        return 25; // default max
+      }
+      const matched = cranes?.find(c => c.id.toUpperCase() === id.toUpperCase());
+      if (matched) return matched.capacity;
+      if (id.endsWith("2")) return 25;
+      return 10;
     };
     const weight = req.estimatedWeight;
     const mandatory = req.mandatoryCrane || "Any";
@@ -101,9 +151,9 @@ export default function OperationsList({
         return `Requested weight (${weight} Tons) exceeds the capacity of selected crane ${mandatory} (${cap} Tons).`;
       }
     } else {
-      // For "Any", if it exceeds the maximum capacity of all cranes (50 Tons)
-      if (weight > 50) {
-        return `Requested weight (${weight} Tons) exceeds the maximum capacity of any gantry crane on the shop floor (50 Tons).`;
+      const maxCap = getCraneCapacity("Any");
+      if (weight > maxCap) {
+        return `Requested weight (${weight} Tons) exceeds the maximum capacity of any gantry crane on the shop floor (${maxCap} Tons).`;
       }
     }
 
@@ -520,15 +570,7 @@ export default function OperationsList({
 
             return visibleCranes.map((craneId) => {
               const ops = scheduledByCrane[craneId] || [];
-              const isHeavy = craneId.endsWith("1");
-              const isMedium = craneId.endsWith("2");
-              const details = CRANE_DETAILS[craneId] || {
-                name: `Gantry ${craneId}`,
-                capacity: isHeavy ? "50 Tons (Heavy Duty)" : isMedium ? "32 Tons (Medium Duty)" : "16 Tons (Light Utility)",
-                range: isHeavy ? "Bay Cols 1 - 10" : isMedium ? "Bay Cols 11 - 20" : "Bay Cols 21 - 30",
-                color: isHeavy ? "border-red-500 text-red-700" : isMedium ? "border-amber-500 text-amber-700" : "border-blue-500 text-blue-700",
-                bg: isHeavy ? "bg-red-50" : isMedium ? "bg-amber-50" : "bg-blue-50"
-              };
+              const details = getCraneDisplayDetails(craneId);
 
               return (
                 <div key={craneId} className="border-2 border-[#141414] rounded-sm overflow-hidden shadow-[3px_3px_0px_#141414]">
@@ -686,7 +728,7 @@ export default function OperationsList({
               const ops = conflictsByCrane[craneId] || [];
               if (ops.length === 0) return null;
 
-              const details = CRANE_DETAILS[craneId] || { name: "General / Unspecified", capacity: "Any Crane", range: "Plant Wide", color: "border-zinc-500 text-zinc-700", bg: "bg-zinc-100" };
+              const details = getCraneDisplayDetails(craneId);
 
               return (
                 <div key={craneId} className="border-2 border-red-900 rounded-sm overflow-hidden bg-white shadow-[2px_2px_0px_#7f1d1d]">
