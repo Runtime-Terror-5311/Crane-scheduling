@@ -8,6 +8,8 @@ import {
   createUser,
   updateUser,
   deleteUser,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/authController.js";
 import {
   getCranes,
@@ -45,6 +47,8 @@ router.use(databaseLockMiddleware);
 
 // Authentication
 router.post("/auth/login", login);
+router.post("/auth/forgot-password", forgotPassword);
+router.post("/auth/reset-password", resetPassword);
 router.get("/auth/me", authenticateToken, getMe);
 
 // Cranes

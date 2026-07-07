@@ -231,3 +231,173 @@ export const deleteUser = (req: Request, res: Response): void => {
   logActivity(adminUser.employeeId, adminUser.name, "User Deleted", `Deleted user account ${employeeId}`);
   res.json({ success: true, message: `User ${employeeId} deleted successfully.` });
 };
+
+const otpStore = new Map<string, { email: string; otp: string; expiresAt: number; employeeId: string }>();
+
+async function sendOTPEmail(email: string, otp: string, userName: string) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) {
+    console.warn(`[Brevo API] BREVO_API_KEY is not defined. OTP for ${email} is ${otp}`);
+    return { success: true, mocked: true, otp };
+  }
+
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || "no-reply@crane-ops.com";
+  const senderName = process.env.BREVO_SENDER_NAME || "Crane-Ops Security";
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": apiKey,
+        "content-type": "application/json",
+        "accept": "application/json",
+      },
+      body: JSON.stringify({
+        sender: { name: senderName, email: senderEmail },
+        to: [{ email, name: userName }],
+        subject: "Crane-Ops OTP: Verification Code",
+        htmlContent: `
+          <div style="font-family: 'JetBrains Mono', monospace; border: 4px solid #141414; padding: 24px; background-color: #ffffff; max-width: 500px; margin: 0 auto; box-shadow: 6px 6px 0px #141414;">
+            <div style="background-color: #f59e0b; padding: 12px; border-bottom: 4px solid #141414; font-weight: bold; font-size: 18px; text-transform: uppercase; text-align: center; color: #141414;">
+              CRANE-OPS SECURITY SERVICE
+            </div>
+            <div style="padding: 20px 0; color: #141414;">
+              <p>Hello <strong>${userName}</strong>,</p>
+              <p>A password reset request was initiated for your system operator account.</p>
+              <p style="margin: 24px 0; text-align: center;">
+                <span style="font-size: 32px; font-weight: 800; background: #ffffff; padding: 12px 24px; letter-spacing: 4px; border: 3px solid #141414; box-shadow: 4px 4px 0px #141414; display: inline-block;">
+                  ${otp}
+                </span>
+              </p>
+              <p style="font-size: 11px; color: #555555; text-transform: uppercase; font-weight: bold;">
+                SECURITY WARNING: This OTP is confidential and will expire in 10 minutes. If you did not make this request, please contact your System Administrator immediately.
+              </p>
+            </div>
+            <div style="border-top: 2px solid #e4e4e7; padding-top: 12px; font-size: 9px; color: #71717a; text-transform: uppercase; font-weight: bold; text-align: center;">
+              SYSTEM TERMINAL BAY 01 &bull; AUTOMATED ALERTS
+            </div>
+          </div>
+        `
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Brevo API Error]", errorText);
+      return { success: false, error: errorText || `HTTP ${response.status}` };
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("[Brevo API Connection Error]", error);
+    return { success: false, error: error.message || String(error) };
+  }
+}
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  const { email } = req.body;
+
+  if (!email || typeof email !== "string") {
+    res.status(400).json({ error: "Email address is required" });
+    return;
+  }
+
+  const db = readDB();
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = db.users.find((u) => u.email && u.email.trim().toLowerCase() === normalizedEmail);
+
+  if (!user) {
+    res.status(404).json({ error: "No user found with the provided email address." });
+    return;
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+  otpStore.set(normalizedEmail, {
+    email: normalizedEmail,
+    otp,
+    expiresAt,
+    employeeId: user.employeeId,
+  });
+
+  const emailResult = await sendOTPEmail(normalizedEmail, otp, user.name);
+
+  if (!emailResult.success) {
+    res.status(500).json({ error: `Failed to send security alert: ${emailResult.error}` });
+    return;
+  }
+
+  logActivity(
+    user.employeeId,
+    user.name,
+    "OTP Requested",
+    `Requested password recovery OTP for email ${normalizedEmail}.`
+  );
+
+  res.json({
+    success: true,
+    message: emailResult.mocked
+      ? "Brevo SMTP not configured. OTP generated locally for testing."
+      : "Security OTP successfully dispatched to your email address.",
+    mocked: emailResult.mocked,
+    otp: emailResult.mocked ? otp : undefined,
+  });
+};
+
+export const resetPassword = (req: Request, res: Response): void => {
+  const { email, otp, newPassword } = req.body;
+
+  if (!email || !otp || !newPassword) {
+    res.status(400).json({ error: "Email, OTP, and new password are required" });
+    return;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const record = otpStore.get(normalizedEmail);
+
+  if (!record) {
+    res.status(400).json({ error: "No OTP request found for this email." });
+    return;
+  }
+
+  if (Date.now() > record.expiresAt) {
+    otpStore.delete(normalizedEmail);
+    res.status(400).json({ error: "Verification code has expired. Please request a new OTP." });
+    return;
+  }
+
+  if (record.otp !== otp.trim()) {
+    res.status(400).json({ error: "Invalid verification code. Access denied." });
+    return;
+  }
+
+  const db = readDB();
+  const userIndex = db.users.findIndex((u) => u.employeeId.toUpperCase() === record.employeeId.toUpperCase());
+
+  if (userIndex === -1) {
+    res.status(404).json({ error: "User account could not be found." });
+    return;
+  }
+
+  const user = db.users[userIndex];
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync(newPassword.trim(), salt);
+
+  db.users[userIndex] = {
+    ...user,
+    passwordHash,
+  };
+
+  writeDB(db);
+  otpStore.delete(normalizedEmail);
+
+  logActivity(
+    user.employeeId,
+    user.name,
+    "Password Reset",
+    `Successfully recovered password via OTP verification.`
+  );
+
+  res.json({ success: true, message: "Your password has been securely reset. You can now login." });
+};
