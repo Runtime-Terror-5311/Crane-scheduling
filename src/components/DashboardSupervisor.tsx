@@ -812,10 +812,10 @@ export default function DashboardSupervisor({
                     onChange={(e) => setPriority(e.target.value as PriorityType)}
                     className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
                   >
-                    <option value="P1">P1 Critical (Hot metal, urgent line stop)</option>
-                    <option value="P2">P2 Urgent (Production shift buffer replenishment)</option>
-                    <option value="P3">P3 Normal (Standard transposition)</option>
-                    <option value="P4">P4 Planned (Overhaul, non-time-critical)</option>
+                    <option value="P1">P1 Critical </option>
+                    <option value="P2">P2 Urgent</option>
+                    <option value="P3">P3 Normal</option>
+                    <option value="P4">P4 Planned</option>
                   </select>
                 </div>
               </div>
