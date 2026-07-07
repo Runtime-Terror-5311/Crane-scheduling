@@ -41,3 +41,17 @@ export function isScheduleInShiftBoundary(startTimeStr: string, endTimeStr: stri
     return sMins >= wStart && normEnd <= wEnd;
   }
 }
+
+export function isTimeWithinRange(currentTime: Date, startTimeStr: string, endTimeStr: string): boolean {
+  const currMins = currentTime.getHours() * 60 + currentTime.getMinutes();
+  const startMins = parseTimeToMinutes(startTimeStr);
+  const endMins = parseTimeToMinutes(endTimeStr);
+
+  if (endMins < startMins) {
+    // Spans across midnight
+    return currMins >= startMins || currMins <= endMins;
+  } else {
+    // Normal daytime schedule
+    return currMins >= startMins && currMins <= endMins;
+  }
+}

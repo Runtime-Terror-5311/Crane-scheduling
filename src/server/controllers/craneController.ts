@@ -2,8 +2,51 @@ import { Request, Response } from "express";
 import { readDB, writeDB, logActivity } from "../db/db.js";
 import { Crane } from "../../types.js";
 
+function parseTimeToMinutes(t: string): number {
+  if (!t) return 0;
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function isTimeWithinRange(currentTime: Date, startTimeStr: string, endTimeStr: string): boolean {
+  const currMins = currentTime.getHours() * 60 + currentTime.getMinutes();
+  const startMins = parseTimeToMinutes(startTimeStr);
+  const endMins = parseTimeToMinutes(endTimeStr);
+
+  if (endMins < startMins) {
+    // Spans across midnight
+    return currMins >= startMins || currMins <= endMins;
+  } else {
+    // Normal daytime schedule
+    return currMins >= startMins && currMins <= endMins;
+  }
+}
+
 export const getCranes = (req: Request, res: Response): void => {
   const db = readDB();
+  const now = new Date();
+  let changed = false;
+
+  db.cranes.forEach((crane) => {
+    if (crane.status === "Maintenance") return;
+
+    const hasActiveSchedule = db.schedules.some((s) => {
+      if (s.assignedCrane !== crane.id && s.secondaryCrane !== crane.id) return false;
+      if (s.status === "Completed" || s.status === "Rejected" || s.status === "Deferred") return false;
+      return isTimeWithinRange(now, s.startTime, s.endTime);
+    });
+
+    const expectedStatus = hasActiveSchedule ? "Busy" : "Available";
+    if (crane.status !== expectedStatus) {
+      crane.status = expectedStatus as any;
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    writeDB(db);
+  }
+
   res.json(db.cranes);
 };
 

@@ -181,6 +181,18 @@ export default function DashboardSupervisor({
     return false;
   };
 
+  const getForcedShiftForWindow = (date: Date): ShiftType | null => {
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    
+    if (hours === 6 && minutes >= 0 && minutes < 10) return "Shift A";
+    if (hours === 9 && minutes >= 0 && minutes < 10) return "General Shift";
+    if (hours === 14 && minutes >= 0 && minutes < 10) return "Shift B";
+    if ((hours === 21 || hours === 22) && minutes >= 0 && minutes < 10) return "Shift C";
+    
+    return null;
+  };
+
   const getLockoutStatusDetails = () => {
     const hours = currentTime.getHours();
     const minutes = currentTime.getMinutes();
@@ -251,7 +263,10 @@ export default function DashboardSupervisor({
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    if (currentSubView === "logboards") {
+    const forcedShift = getForcedShiftForWindow(currentTime);
+    if (forcedShift) {
+      setShift(forcedShift);
+    } else if (currentSubView === "logboards") {
       setShift(getCurrentShift(currentTime));
     }
   }, [currentTime, currentSubView]);
@@ -762,13 +777,17 @@ export default function DashboardSupervisor({
                   <select
                     value={shift}
                     onChange={(e) => setShift(e.target.value as ShiftType)}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+                    disabled={!!getForcedShiftForWindow(currentTime)}
+                    className={`w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black ${getForcedShiftForWindow(currentTime) ? 'opacity-70 bg-zinc-100 cursor-not-allowed' : ''}`}
                   >
                     <option value="Shift A">Shift A (06:00-14:00)</option>
                     <option value="Shift B">Shift B (14:00-22:00)</option>
                     <option value="Shift C">Shift C (22:00-06:00)</option>
                     <option value="General Shift">General Shift (09:00-18:30)</option>
                   </select>
+                  {getForcedShiftForWindow(currentTime) && (
+                    <p className="text-[10px] text-amber-600 mt-1.5 font-mono font-bold">⚠️ Locked to {getForcedShiftForWindow(currentTime)} during handover window.</p>
+                  )}
                 </div>
               </div>
 

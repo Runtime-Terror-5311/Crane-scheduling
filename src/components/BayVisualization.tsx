@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Activity, AlertTriangle, Hammer, ShieldAlert, Compass } from "lucide-react";
 import { Crane, Schedule, CraneRequest } from "../types";
-import { isScheduleInShiftBoundary } from "../utils/shiftUtils";
+import { isScheduleInShiftBoundary, isTimeWithinRange } from "../utils/shiftUtils";
 
 interface BayVisualizationProps {
   cranes: Crane[];
@@ -21,6 +21,7 @@ export default function BayVisualization({
   selectedAreaFilter
 }: BayVisualizationProps) {
   const [isMobile, setIsMobile] = useState(false);
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   useEffect(() => {
     const handleResize = () => {
@@ -29,6 +30,13 @@ export default function BayVisualization({
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 5000); // Tick every 5 seconds for precise updates
+    return () => clearInterval(timer);
   }, []);
 
   // Filter cranes based on selectedCraneFilter (do not filter out other cranes in the same bay by selectedAreaFilter to allow all operators to see all cranes)
@@ -143,6 +151,9 @@ export default function BayVisualization({
                 if (!isScheduleInShiftBoundary(s.startTime, s.endTime, reqShift)) {
                   return false;
                 }
+                if (!isTimeWithinRange(currentTime, s.startTime, s.endTime)) {
+                  return false;
+                }
                 if (selectedShift && selectedShift !== "ALL") {
                   return origReq && origReq.shift === selectedShift;
                 }
@@ -204,6 +215,9 @@ export default function BayVisualization({
               if (origReq?.status === "Completed") return false;
               const reqShift = origReq?.shift || "General Shift";
               if (!isScheduleInShiftBoundary(s.startTime, s.endTime, reqShift)) {
+                return false;
+              }
+              if (!isTimeWithinRange(currentTime, s.startTime, s.endTime)) {
                 return false;
               }
               if (selectedShift && selectedShift !== "ALL") {
@@ -323,6 +337,9 @@ export default function BayVisualization({
               if (!isScheduleInShiftBoundary(s.startTime, s.endTime, reqShift)) {
                 return false;
               }
+              if (!isTimeWithinRange(currentTime, s.startTime, s.endTime)) {
+                return false;
+              }
               if (selectedShift && selectedShift !== "ALL") {
                 return origReq && origReq.shift === selectedShift;
               }
@@ -403,6 +420,9 @@ export default function BayVisualization({
             if (origReq?.status === "Completed") return false;
             const reqShift = origReq?.shift || "General Shift";
             if (!isScheduleInShiftBoundary(s.startTime, s.endTime, reqShift)) {
+              return false;
+            }
+            if (!isTimeWithinRange(currentTime, s.startTime, s.endTime)) {
               return false;
             }
             if (selectedShift && selectedShift !== "ALL") {
