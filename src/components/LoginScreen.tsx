@@ -262,7 +262,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               className="w-full py-3 bg-amber-600 text-white font-black text-xs uppercase tracking-[0.2em] border-2 border-[#141414] shadow-[4px_4px_0px_#141414] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[3px_3px_0px_#141414] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all cursor-pointer"
               disabled={loading}
             >
-              {loading ? "DECRYPTING CREDENTIALS..." : "AUTHENTICATE BADGE"}
+              {loading ? "Loading ..." : "AUTHENTICATE BADGE"}
             </button>
           </form>
         ) : (
