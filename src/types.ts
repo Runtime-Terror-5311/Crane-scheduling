@@ -50,6 +50,7 @@ export interface CraneRequest {
   isTandemLift?: boolean;
   status: RequestStatus;
   createdAt: string;
+  date?: string; // "YYYY-MM-DD" target date of the requirement
 }
 
 export interface Schedule {

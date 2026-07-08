@@ -668,15 +668,9 @@ export default function OperationsList({
 
                               {/* Column Span */}
                               <td className="py-3 px-4 text-xs font-black">
-                                {op.startColumn !== undefined && op.endColumn !== undefined ? (
-                                  <span className="bg-zinc-100 px-2 py-0.5 border border-zinc-200 rounded-sm">
-                                    Cols {op.startColumn}–{op.endColumn}
-                                  </span>
-                                ) : (
-                                  <span className="bg-zinc-100 px-2 py-0.5 border border-zinc-200 rounded-sm">
-                                    Col {op.column}
-                                  </span>
-                                )}
+                                <span className="bg-zinc-100 px-2 py-0.5 border border-zinc-200 rounded-sm">
+                                  {op.origReq?.bay ? `Bay ${op.origReq.bay}` : "Bay A"}: {op.startColumn !== undefined && op.endColumn !== undefined ? `${op.startColumn}–${op.endColumn}` : op.column}
+                                </span>
                               </td>
 
                               {/* Priority */}

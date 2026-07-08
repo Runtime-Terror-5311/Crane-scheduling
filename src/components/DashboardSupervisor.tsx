@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar } from "lucide-react";
 import { CraneRequest, User, ShiftType, PriorityType, Crane } from "../types";
 import { getCurrentShift } from "../utils/shiftUtils";
 
@@ -261,6 +261,7 @@ export default function DashboardSupervisor({
   const [remarks, setRemarks] = useState("");
   const [mandatoryCrane, setMandatoryCrane] = useState<string>("Any");
   const [formError, setFormError] = useState("");
+  const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
 
   useEffect(() => {
     const forcedShift = getForcedShiftForWindow(currentTime);
@@ -356,6 +357,7 @@ export default function DashboardSupervisor({
           priority,
           remarks,
           mandatoryCrane,
+          date,
         }),
       });
 
@@ -608,9 +610,10 @@ export default function DashboardSupervisor({
                               <div>Dept: <span className="text-zinc-900 font-sans font-bold">{req.department}</span></div>
                               <div>Cols: <span className="font-black text-[#141414]">{req.startColumn !== undefined && req.endColumn !== undefined ? `${req.startColumn}-${req.endColumn}` : req.column}</span></div>
                               <div>Shift: <span className="text-zinc-800">{req.shift}</span></div>
+                              <div>Date: <span className="text-zinc-900 font-black">{req.date || req.createdAt?.split("T")[0] || "Today"}</span></div>
                               <div>Time: <span className="text-zinc-900 font-black">{req.estimatedStartTime}-{req.estimatedEndTime}</span></div>
                               <div>Load: <span className="text-zinc-900 font-black">{req.estimatedWeight} Ton</span></div>
-                              <div>Gantry: <span className="text-amber-800 font-black">{req.mandatoryCrane}</span></div>
+                              <div className="col-span-2">Gantry: <span className="text-amber-800 font-black">{req.mandatoryCrane}</span></div>
                             </div>
 
                             {req.remarks && (
@@ -731,7 +734,7 @@ export default function DashboardSupervisor({
               )}
 
               {/* Form Area Selection Row */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 
                 {/* Bay Selector (Critical 7 Bay Requirement) */}
                 <div>
@@ -789,6 +792,20 @@ export default function DashboardSupervisor({
                     <p className="text-[10px] text-amber-600 mt-1.5 font-mono font-bold">⚠️ Locked to {getForcedShiftForWindow(currentTime)} during handover window.</p>
                   )}
                 </div>
+
+                {/* Requirement Date Selector */}
+                <div>
+                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Requirement Date</label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      required
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black font-mono focus:outline-none"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Department and Priority */}
@@ -812,10 +829,10 @@ export default function DashboardSupervisor({
                     onChange={(e) => setPriority(e.target.value as PriorityType)}
                     className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
                   >
-                    <option value="P1">P1 Critical </option>
-                    <option value="P2">P2 Urgent</option>
-                    <option value="P3">P3 Normal</option>
-                    <option value="P4">P4 Planned</option>
+                    <option value="P1">P1 Critical (Hot metal, urgent line stop)</option>
+                    <option value="P2">P2 Urgent (Production shift buffer replenishment)</option>
+                    <option value="P3">P3 Normal (Standard transposition)</option>
+                    <option value="P4">P4 Planned (Overhaul, non-time-critical)</option>
                   </select>
                 </div>
               </div>

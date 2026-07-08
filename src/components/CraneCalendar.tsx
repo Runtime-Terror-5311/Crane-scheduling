@@ -57,7 +57,7 @@ export default function CraneCalendar({ schedules, requests, cranes }: CraneCale
   const mappedSchedules = useMemo(() => {
     return schedules.map((sched) => {
       const req = requests.find((r) => r.id === sched.requestId);
-      const dateStr = req?.createdAt ? req.createdAt.split("T")[0] : new Date().toISOString().split("T")[0];
+      const dateStr = req?.date || (req?.createdAt ? req.createdAt.split("T")[0] : new Date().toISOString().split("T")[0]);
       return {
         ...sched,
         date: dateStr,

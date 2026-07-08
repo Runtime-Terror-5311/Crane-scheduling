@@ -167,6 +167,7 @@ export const createRequest = (req: Request, res: Response): void => {
       isTandemLift,
       status: status as any,
       createdAt: new Date().toISOString(),
+      date: req.body.date || new Date().toISOString().split("T")[0],
     };
 
     db.requests.push(newRequest);
@@ -269,6 +270,7 @@ export const updateRequest = (req: Request, res: Response): void => {
       mandatoryCrane: req.body.mandatoryCrane || existingReq.mandatoryCrane,
       isTandemLift: req.body.isTandemLift !== undefined ? Boolean(req.body.isTandemLift) : (existingReq.isTandemLift || false),
       status: user.role === "Admin" && req.body.status ? req.body.status : existingReq.status,
+      date: req.body.date || existingReq.date || existingReq.createdAt.split("T")[0],
     };
 
     db.requests[reqIndex] = updatedReq;
