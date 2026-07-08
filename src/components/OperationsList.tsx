@@ -193,6 +193,11 @@ export default function OperationsList({
         return false;
       }
 
+      // Only store/show current day's scheduled operations
+      const todayStr = new Date().toISOString().split("T")[0];
+      const schedDate = sched.origReq?.date || (sched.origReq?.createdAt ? sched.origReq.createdAt.split("T")[0] : todayStr);
+      if (schedDate !== todayStr) return false;
+
       return true;
     }).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
   }, [schedules, requests]);
@@ -200,6 +205,11 @@ export default function OperationsList({
   // 2. Process "Not Possible / Conflicts / Deferred" work
   const conflictingOperations = useMemo(() => {
     return requests.filter((req) => {
+      // Only store/show current day's conflicts
+      const todayStr = new Date().toISOString().split("T")[0];
+      const reqDate = req.date || (req.createdAt ? req.createdAt.split("T")[0] : todayStr);
+      if (reqDate !== todayStr) return false;
+
       // ONLY put those processes here which are not possible according to the slots / capacities / limits mentioned
       return getRequestExclusionReason(req) !== null;
     }).sort((a, b) => timeToMinutes(a.estimatedStartTime) - timeToMinutes(b.estimatedStartTime));
@@ -406,10 +416,10 @@ export default function OperationsList({
         <div>
           <h2 className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
             <CalendarDays className="w-6 h-6 text-amber-600" />
-            Crane-Wise daily Shift Operations &amp; conflict registry
+            Crane-Wise Shift Operations &amp; Conflict Registry (Today)
           </h2>
           <p className="text-xs font-mono font-bold text-zinc-500 uppercase mt-1">
-            Gantry-Wise Timetable • Active Crane Allocations &amp; Workability Exceptions
+            Gantry-Wise Timetable • Today's Crane Allocations &amp; Workability Exceptions
           </p>
         </div>
 
@@ -425,7 +435,7 @@ export default function OperationsList({
               }`}
             >
               <CheckCircle2 className="w-4 h-4 animate-pulse" />
-              Crane Timetables ({scheduledOperations.length})
+              Today's Timetables ({scheduledOperations.length})
             </button>
             <button
               onClick={() => setActiveTab("conflicts")}
@@ -436,7 +446,7 @@ export default function OperationsList({
               }`}
             >
               <Ban className="w-4 h-4" />
-              Shift Exclusions ({conflictingOperations.length})
+              Today's Exclusions ({conflictingOperations.length})
             </button>
             <button
               onClick={() => setActiveTab("history")}

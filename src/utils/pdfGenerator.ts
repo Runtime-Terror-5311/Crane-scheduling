@@ -443,3 +443,126 @@ export function generateCraneWorkingHoursPDF(
 
   doc.save(`crane_working_hours_summary_${new Date().toISOString().split("T")[0]}.pdf`);
 }
+
+export function generateScheduledHistoryPDF(
+  filteredJobs: any[],
+  startDate: string,
+  endDate: string,
+  shift: string
+) {
+  const doc = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4"
+  });
+
+  const now = new Date();
+
+  // Document Title & Styling
+  doc.setFont("Helvetica", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(20, 20, 20);
+  doc.text("HISTORICAL SCHEDULED JOBS REPORT", 14, 20);
+  
+  doc.setFont("Helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+
+  let subtitle = "Historical Scheduled Crane Operations Log";
+  if (startDate && endDate) {
+    subtitle += ` | Date Range: ${startDate} to ${endDate}`;
+  } else if (startDate) {
+    subtitle += ` | From: ${startDate}`;
+  } else if (endDate) {
+    subtitle += ` | Up To: ${endDate}`;
+  }
+  if (shift && shift !== "ALL") {
+    subtitle += ` | Filtered Shift: ${shift}`;
+  } else {
+    subtitle += ` | Shift: All Shifts`;
+  }
+
+  doc.text(`Generated on: ${now.toLocaleString()} | ${subtitle}`, 14, 26);
+
+  // Decorative Steel Line
+  doc.setDrawColor(20, 20, 20);
+  doc.setLineWidth(0.8);
+  doc.line(14, 28, 283, 28);
+
+  const detailHeaders = [
+    "Date",
+    "Gantry/Crane",
+    "Shift",
+    "Dept",
+    "Time Window",
+    "Bay & Column",
+    "Weight",
+    "Priority",
+    "Status",
+    "Remarks"
+  ];
+
+  const detailRows = filteredJobs.map((job) => {
+    const craneDisplay = job.secondaryCrane 
+      ? `${job.assignedCrane} + ${job.secondaryCrane} (Tandem)` 
+      : job.assignedCrane;
+    
+    const locationDisplay = `${job.bay || "A"}: Col ${job.startColumn !== undefined && job.endColumn !== undefined ? `${job.startColumn}-${job.endColumn}` : job.column || "1"}`;
+
+    return [
+      job.date,
+      craneDisplay || "N/A",
+      job.shift || "General Shift",
+      job.department || "Production",
+      `${job.startTime} - ${job.endTime}`,
+      locationDisplay,
+      `${job.weight || 0} Tons`,
+      job.priority || "P3",
+      job.status || "Scheduled",
+      job.remarks || "-"
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 34,
+    head: [detailHeaders],
+    body: detailRows.length > 0 ? detailRows : [["-", "-", "No historical scheduled operations found matching filters", "-", "-", "-", "-", "-", "-", "-"]],
+    theme: "grid",
+    styles: {
+      fontSize: 8,
+      cellPadding: 2.5,
+      font: "Helvetica",
+      textColor: [35, 35, 35],
+      lineColor: [220, 220, 220],
+      lineWidth: 0.1
+    },
+    headStyles: {
+      fillColor: [15, 23, 42],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8.5
+    },
+    columnStyles: {
+      0: { cellWidth: 22 },
+      1: { cellWidth: 32 },
+      2: { cellWidth: 25 },
+      3: { cellWidth: 25 },
+      4: { cellWidth: 28 },
+      5: { cellWidth: 28 },
+      6: { cellWidth: 18, halign: "right" },
+      7: { cellWidth: 15, halign: "center", fontStyle: "bold" },
+      8: { cellWidth: 20, halign: "center" },
+      9: { cellWidth: 56 }
+    },
+    margin: { left: 14, right: 14 },
+    didDrawPage: (data) => {
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${data.pageNumber}`, 14, 200);
+    }
+  });
+
+  doc.save(`scheduled_jobs_history_${new Date().toISOString().split("T")[0]}.pdf`);
+}
+

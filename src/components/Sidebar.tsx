@@ -68,8 +68,8 @@ export default function Sidebar({
     },
     {
       id: "calendar" as const,
-      label: "Crane Calendar",
-      description: "Month-wise crane schedules",
+      label: "Schedule History",
+      description: "Historical scheduled registries & reports",
       icon: Calendar
     },
     ...(user.role === "Admin" ? [

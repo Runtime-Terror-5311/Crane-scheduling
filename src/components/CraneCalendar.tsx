@@ -1,19 +1,19 @@
 import React, { useState, useMemo } from "react";
 import { 
-  Calendar as CalendarIcon, 
-  ChevronLeft, 
-  ChevronRight, 
+  Calendar, 
   Clock, 
   HardHat, 
-  Tag, 
+  Download, 
+  Filter, 
+  Search, 
+  Weight, 
   Layers, 
   Building2, 
-  Weight, 
-  ArrowRightLeft,
-  X,
-  Filter
+  AlertTriangle,
+  ArrowRight
 } from "lucide-react";
-import { Schedule, CraneRequest, Crane, ShiftType } from "../types";
+import { Schedule, CraneRequest, Crane, PriorityType } from "../types";
+import { generateScheduledHistoryPDF } from "../utils/pdfGenerator";
 
 interface CraneCalendarProps {
   schedules: Schedule[];
@@ -22,39 +22,23 @@ interface CraneCalendarProps {
 }
 
 export default function CraneCalendar({ schedules, requests, cranes }: CraneCalendarProps) {
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(
-    new Date().toISOString().split("T")[0]
-  );
+  // Filter states
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30); // Default to 30 days ago
+    return d.toISOString().split("T")[0];
+  });
   
-  // Filters
-  const [selectedCrane, setSelectedCrane] = useState<string>("ALL");
+  const [endDate, setEndDate] = useState<string>(() => {
+    return new Date().toISOString().split("T")[0]; // Default to today
+  });
+
   const [selectedShift, setSelectedShift] = useState<string>("ALL");
+  const [selectedCrane, setSelectedCrane] = useState<string>("ALL");
+  const [searchTerm, setSearchTerm] = useState<string>("");
 
-  // Get current year and month
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth(); // 0-indexed
-
-  // Calendar math
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDayIndex = new Date(year, month, 1).getDay(); // Day of week (0-6)
-
-  // Navigate months
-  const handlePrevMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
-  };
-
-  const handleGoToToday = () => {
-    setCurrentDate(new Date());
-    setSelectedDate(new Date().toISOString().split("T")[0]);
-  };
-
-  // List of all schedules with associated request details mapped
-  const mappedSchedules = useMemo(() => {
+  // Map schedules to include full request attributes
+  const mappedHistory = useMemo(() => {
     return schedules.map((sched) => {
       const req = requests.find((r) => r.id === sched.requestId);
       const dateStr = req?.date || (req?.createdAt ? req.createdAt.split("T")[0] : new Date().toISOString().split("T")[0]);
@@ -67,381 +51,372 @@ export default function CraneCalendar({ schedules, requests, cranes }: CraneCale
         weight: req?.estimatedWeight || sched.weight || 0,
         remarks: req?.remarks || sched.remarks || "",
         status: req?.status || sched.status || "Scheduled",
+        bay: req?.bay || sched.bay || "A",
       };
-    });
+    }).sort((a, b) => b.date.localeCompare(a.date)); // Newest first
   }, [schedules, requests]);
 
-  // Filtered schedules for calendar cells and detail panel
-  const filteredSchedules = useMemo(() => {
-    return mappedSchedules.filter((s) => {
-      if (selectedCrane !== "ALL" && s.assignedCrane !== selectedCrane && s.secondaryCrane !== selectedCrane) {
+  // Apply filters to mapped history
+  const filteredHistory = useMemo(() => {
+    return mappedHistory.filter((job) => {
+      // Date filter
+      if (startDate && job.date < startDate) return false;
+      if (endDate && job.date > endDate) return false;
+
+      // Shift filter
+      if (selectedShift !== "ALL" && job.shift !== selectedShift) return false;
+
+      // Crane filter
+      if (selectedCrane !== "ALL" && job.assignedCrane !== selectedCrane && job.secondaryCrane !== selectedCrane) {
         return false;
       }
-      if (selectedShift !== "ALL" && s.shift !== selectedShift) {
-        return false;
+
+      // Search term (Dept, Gantry, Remarks, ID)
+      if (searchTerm.trim() !== "") {
+        const term = searchTerm.toLowerCase();
+        const matchesSearch = 
+          job.department.toLowerCase().includes(term) ||
+          job.assignedCrane.toLowerCase().includes(term) ||
+          (job.secondaryCrane || "").toLowerCase().includes(term) ||
+          job.remarks.toLowerCase().includes(term) ||
+          job.id.toLowerCase().includes(term);
+        if (!matchesSearch) return false;
       }
+
       return true;
     });
-  }, [mappedSchedules, selectedCrane, selectedShift]);
+  }, [mappedHistory, startDate, endDate, selectedShift, selectedCrane, searchTerm]);
 
-  // Helper to group schedules by date for easy lookup in monthly grid
-  const schedulesByDate = useMemo(() => {
-    const map: Record<string, typeof filteredSchedules> = {};
-    filteredSchedules.forEach((s) => {
-      if (!map[s.date]) {
-        map[s.date] = [];
-      }
-      map[s.date].push(s);
-    });
-    return map;
-  }, [filteredSchedules]);
-
-  // List of days in the current calendar page
-  const calendarCells = useMemo(() => {
-    const cells = [];
+  // Summary statistics metrics
+  const stats = useMemo(() => {
+    const totalJobs = filteredHistory.length;
+    const totalWeight = filteredHistory.reduce((sum, job) => sum + (job.weight || 0), 0);
+    const criticalLifts = filteredHistory.filter(job => job.priority === "P1" || job.isTandemLift).length;
     
-    // Previous month padding days
-    const prevMonthDays = new Date(year, month, 0).getDate();
-    for (let i = firstDayIndex - 1; i >= 0; i--) {
-      const prevDate = new Date(year, month - 1, prevMonthDays - i);
-      cells.push({
-        date: prevDate,
-        dateStr: prevDate.toISOString().split("T")[0],
-        isCurrentMonth: false,
-        dayNum: prevMonthDays - i,
-      });
-    }
+    const uniqueCranes = new Set<string>();
+    filteredHistory.forEach(job => {
+      if (job.assignedCrane) uniqueCranes.add(job.assignedCrane);
+      if (job.secondaryCrane) uniqueCranes.add(job.secondaryCrane);
+    });
 
-    // Current month days
-    for (let i = 1; i <= daysInMonth; i++) {
-      const currDate = new Date(year, month, i);
-      cells.push({
-        date: currDate,
-        dateStr: currDate.toISOString().split("T")[0],
-        isCurrentMonth: true,
-        dayNum: i,
-      });
-    }
+    return {
+      totalJobs,
+      totalWeight,
+      criticalLifts,
+      activeCranes: uniqueCranes.size
+    };
+  }, [filteredHistory]);
 
-    // Next month padding days to make perfect grid multiple of 7
-    const remainingCells = 42 - cells.length;
-    for (let i = 1; i <= remainingCells; i++) {
-      const nextDate = new Date(year, month + 1, i);
-      cells.push({
-        date: nextDate,
-        dateStr: nextDate.toISOString().split("T")[0],
-        isCurrentMonth: false,
-        dayNum: i,
-      });
-    }
-
-    return cells;
-  }, [year, month, daysInMonth, firstDayIndex]);
-
-  // Details for selected date
-  const selectedDateSchedules = useMemo(() => {
-    if (!selectedDate) return [];
-    return filteredSchedules.filter((s) => s.date === selectedDate);
-  }, [filteredSchedules, selectedDate]);
-
-  // Priority color helper
-  const getPriorityBadgeClass = (priority: string) => {
+  const getPriorityBadgeClass = (priority: PriorityType) => {
     switch (priority) {
       case "P1":
-        return "bg-red-100 text-red-800 border-red-300";
+        return "bg-red-50 border-2 border-red-500 text-red-950 font-black";
       case "P2":
-        return "bg-amber-100 text-amber-800 border-amber-300";
+        return "bg-orange-50 border-2 border-orange-500 text-orange-950 font-black";
       case "P3":
-        return "bg-emerald-100 text-emerald-800 border-emerald-300";
+        return "bg-emerald-50 border-2 border-emerald-500 text-emerald-950 font-black";
       default:
-        return "bg-blue-100 text-blue-800 border-blue-300";
+        return "bg-zinc-100 border-2 border-zinc-500 text-zinc-900";
     }
   };
 
-  // Crane color helper
-  const getCraneColorClass = (craneId: string) => {
-    const id = craneId.toUpperCase();
-    if (id.startsWith("A1")) return "bg-[#1e1e1e] border-amber-500 text-amber-400";
-    if (id.startsWith("A2")) return "bg-[#141414] border-emerald-500 text-emerald-400";
-    if (id.startsWith("A3")) return "bg-[#18181b] border-blue-500 text-blue-400";
-    return "bg-[#27272a] border-zinc-500 text-zinc-300";
+  const handleDownloadPDF = () => {
+    generateScheduledHistoryPDF(filteredHistory, startDate, endDate, selectedShift);
   };
-
-  const getShiftBadgeColor = (shift: string) => {
-    switch (shift) {
-      case "Shift A": return "bg-sky-50 text-sky-800 border-sky-300";
-      case "Shift B": return "bg-amber-50 text-amber-800 border-amber-300";
-      case "Shift C": return "bg-indigo-50 text-indigo-800 border-indigo-300";
-      default: return "bg-purple-50 text-purple-800 border-purple-300";
-    }
-  };
-
-  const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ];
-
-  const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   return (
-    <div id="crane_calendar_container" className="space-y-6">
-      
+    <div className="space-y-6">
       {/* Page Header */}
-      <div className="bg-white border-4 border-[#141414] p-5 shadow-[4px_4px_0px_#141414] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-zinc-900 border-4 border-[#141414] shadow-[4px_4px_0px_#141414] p-5 text-white flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="space-y-1">
-          <h2 className="text-xs font-black uppercase tracking-widest font-mono text-zinc-500 flex items-center gap-1.5">
-            <CalendarIcon className="w-4 h-4 text-amber-500" />
-            Crane Gantry Calendar Log
-          </h2>
-          <p className="text-sm font-black text-zinc-900 uppercase">
-            Visual month-wise registry of crane operations and planned shifts
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-amber-500 text-slate-950 border-2 border-slate-950 rounded-sm">
+              <Layers className="w-5 h-5" />
+            </div>
+            <h1 className="text-xl font-black uppercase tracking-tight text-white font-mono">
+              Scheduled Jobs History
+            </h1>
+          </div>
+          <p className="text-xs text-zinc-400 font-mono">
+            Comprehensive audit registry of scheduled, active, and completed crane requirements.
           </p>
         </div>
-        
-        {/* Navigation / Actions */}
-        <div className="flex gap-2.5">
-          <button
-            id="cal_prev_month"
-            onClick={handlePrevMonth}
-            className="p-2 border-2 border-[#141414] bg-white hover:bg-zinc-100 text-[#141414] shadow-[2px_2px_0px_#141414] active:translate-y-0.5 active:shadow-[1px_1px_0px_#141414] transition-all cursor-pointer rounded-sm"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          
-          <div className="px-4 py-2 border-2 border-[#141414] bg-[#141414] text-white font-black font-mono text-xs uppercase shadow-[2px_2px_0px_#141414] select-none text-center min-w-[150px]">
-            {monthNames[month]} {year}
-          </div>
-          
-          <button
-            id="cal_next_month"
-            onClick={handleNextMonth}
-            className="p-2 border-2 border-[#141414] bg-white hover:bg-zinc-100 text-[#141414] shadow-[2px_2px_0px_#141414] active:translate-y-0.5 active:shadow-[1px_1px_0px_#141414] transition-all cursor-pointer rounded-sm"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
 
-          <button
-            id="cal_today"
-            onClick={handleGoToToday}
-            className="px-3.5 py-2 border-2 border-[#141414] bg-amber-500 hover:bg-amber-600 text-[#141414] font-black font-mono text-xs uppercase shadow-[2px_2px_0px_#141414] active:translate-y-0.5 active:shadow-[1px_1px_0px_#141414] transition-all cursor-pointer rounded-sm"
-          >
-            Today
-          </button>
+        <button
+          id="btn_download_history_pdf"
+          onClick={handleDownloadPDF}
+          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 border-2 border-[#141414] text-slate-950 rounded-sm text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[2px_2px_0px_#141414] active:translate-y-0.5 transition-all font-mono"
+          title="Download PDF report of current filtered registry history"
+        >
+          <Download className="w-4 h-4" />
+          Generate PDF Report
+        </button>
+      </div>
+
+      {/* Dynamic Filters Form */}
+      <div className="bg-white rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] p-4 font-mono text-xs space-y-4">
+        <div className="flex items-center gap-2 border-b border-zinc-200 pb-2">
+          <Filter className="w-4 h-4 text-amber-500" />
+          <span className="font-black text-zinc-900 uppercase">Filters & Query Parameters</span>
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+          {/* Start Date */}
+          <div>
+            <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+              Start Date
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+            />
+          </div>
+
+          {/* End Date */}
+          <div>
+            <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+              End Date
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+            />
+          </div>
+
+          {/* Shift Select */}
+          <div>
+            <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+              Shift Option
+            </label>
+            <select
+              value={selectedShift}
+              onChange={(e) => setSelectedShift(e.target.value)}
+              className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+            >
+              <option value="ALL">All Shifts (ALL)</option>
+              <option value="Shift A">Shift A (06:00-14:00)</option>
+              <option value="Shift B">Shift B (14:00-22:00)</option>
+              <option value="Shift C">Shift C (22:00-06:00)</option>
+              <option value="General Shift">General Shift (09:00-18:30)</option>
+            </select>
+          </div>
+
+          {/* Crane/Gantry Select */}
+          <div>
+            <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+              Gantry/Crane
+            </label>
+            <select
+              value={selectedCrane}
+              onChange={(e) => setSelectedCrane(e.target.value)}
+              className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+            >
+              <option value="ALL">All Cranes (ALL)</option>
+              {cranes.map((crane) => (
+                <option key={crane.id} value={crane.id}>
+                  Gantry {crane.id} ({crane.capacity} Ton)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Live Search */}
+          <div>
+            <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+              Search Remarks / Dept
+            </label>
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 w-3.5 h-3.5 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Search logs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-7 pr-2 p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Filter and Content Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
-        
-        {/* Main Monthly Calendar Card (3/4 Width) */}
-        <div className="xl:col-span-3 bg-white border-4 border-[#141414] shadow-[6px_6px_0px_#141414] rounded-sm overflow-hidden flex flex-col">
-          
-          {/* Calendar Controller Filters Bar */}
-          <div className="bg-zinc-50 border-b-2 border-[#141414] p-4 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-2 font-mono text-xs font-bold text-zinc-700">
-              <Filter className="w-4 h-4 text-amber-600" />
-              <span>FILTER CALENDAR MATRIX:</span>
-            </div>
-            
-            <div className="flex flex-wrap gap-3">
-              {/* Crane filter */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-mono font-black uppercase text-zinc-500">Crane:</span>
-                <select
-                  value={selectedCrane}
-                  onChange={(e) => setSelectedCrane(e.target.value)}
-                  className="p-1.5 bg-white border-2 border-[#141414] text-xs font-black rounded-sm"
-                >
-                  <option value="ALL">All Cranes</option>
-                  {cranes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Shift Filter */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-mono font-black uppercase text-zinc-500">Shift:</span>
-                <select
-                  value={selectedShift}
-                  onChange={(e) => setSelectedShift(e.target.value)}
-                  className="p-1.5 bg-white border-2 border-[#141414] text-xs font-black rounded-sm"
-                >
-                  <option value="ALL">All Shifts</option>
-                  <option value="Shift A">Shift A (06:00-14:00)</option>
-                  <option value="Shift B">Shift B (14:00-22:00)</option>
-                  <option value="Shift C">Shift C (22:00-06:00)</option>
-                  <option value="General Shift">General Shift</option>
-                </select>
-              </div>
-            </div>
+      {/* Bento Statistics Banner */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* KPI 1 */}
+        <div className="bg-zinc-50 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] p-4 rounded-sm flex items-center gap-3">
+          <div className="p-2.5 bg-zinc-900 text-amber-400 border border-zinc-700 rounded-sm">
+            <Layers className="w-5 h-5" />
           </div>
-
-          {/* Weekday Labels */}
-          <div className="grid grid-cols-7 border-b border-zinc-200 text-center bg-zinc-900 text-white font-mono text-xs font-black uppercase py-2">
-            {weekdayNames.map((day) => (
-              <div key={day}>{day}</div>
-            ))}
-          </div>
-
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 bg-zinc-200 gap-[1px]">
-            {calendarCells.map((cell, index) => {
-              const daySchedules = schedulesByDate[cell.dateStr] || [];
-              const isSelected = selectedDate === cell.dateStr;
-              const isToday = new Date().toISOString().split("T")[0] === cell.dateStr;
-
-              return (
-                <div
-                  key={`${cell.dateStr}-${index}`}
-                  onClick={() => setSelectedDate(cell.dateStr)}
-                  className={`min-h-[90px] md:min-h-[115px] p-2 flex flex-col justify-between transition-all cursor-pointer bg-white ${
-                    !cell.isCurrentMonth ? "bg-zinc-50 text-zinc-400" : "text-zinc-900"
-                  } ${isSelected ? "ring-4 ring-amber-500 bg-amber-50/50 z-10" : "hover:bg-zinc-50"}`}
-                >
-                  {/* Day number header */}
-                  <div className="flex justify-between items-center mb-1">
-                    <span className={`text-xs font-black font-mono px-1.5 py-0.5 rounded-sm ${
-                      isToday 
-                        ? "bg-[#141414] text-amber-400 font-extrabold" 
-                        : isSelected 
-                          ? "bg-amber-100 text-amber-950 font-black" 
-                          : ""
-                    }`}>
-                      {cell.dayNum}
-                    </span>
-                    {daySchedules.length > 0 && (
-                      <span className="text-[9px] font-mono font-black bg-zinc-100 text-[#141414] border border-[#141414] px-1 py-0.1 rounded-sm">
-                        {daySchedules.length} {daySchedules.length === 1 ? "Job" : "Jobs"}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Schedules mini list */}
-                  <div className="flex-grow space-y-1 overflow-y-auto max-h-[60px] md:max-h-[80px] scrollbar-thin">
-                    {daySchedules.slice(0, 3).map((s) => (
-                      <div
-                        key={s.id}
-                        className={`text-[8px] md:text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border border-[#141414]/15 flex items-center justify-between truncate ${getCraneColorClass(s.assignedCrane)}`}
-                        title={`${s.assignedCrane} (${s.startTime}-${s.endTime}): ${s.department}`}
-                      >
-                        <span className="font-extrabold flex items-center gap-0.5">
-                          <HardHat className="w-2 h-2" />
-                          {s.assignedCrane}
-                        </span>
-                        <span className="opacity-90">{s.startTime}</span>
-                      </div>
-                    ))}
-                    {daySchedules.length > 3 && (
-                      <div className="text-[8px] font-mono text-zinc-500 font-bold text-center italic">
-                        + {daySchedules.length - 3} more jobs
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div>
+            <span className="block text-[10px] font-mono font-black text-zinc-500 uppercase">Filtered Jobs</span>
+            <span className="text-xl font-black font-mono text-zinc-900">{stats.totalJobs} Tasks</span>
           </div>
         </div>
 
-        {/* Selected Day Inspector Side-Panel (1/4 Width) */}
-        <div className="bg-white border-4 border-[#141414] shadow-[6px_6px_0px_#141414] rounded-sm p-4 space-y-4">
-          <div className="border-b-2 border-[#141414] pb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-amber-600" />
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-tight text-[#141414]">Day Inspector</h3>
-                <p className="text-[10px] font-mono text-zinc-500 font-bold">{selectedDate || "Select a date"}</p>
-              </div>
-            </div>
-            {selectedDate && (
-              <button 
-                onClick={() => setSelectedDate(null)}
-                className="text-zinc-400 hover:text-zinc-600 transition-colors"
-                title="Clear selected date"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+        {/* KPI 2 */}
+        <div className="bg-zinc-50 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] p-4 rounded-sm flex items-center gap-3">
+          <div className="p-2.5 bg-zinc-900 text-amber-400 border border-zinc-700 rounded-sm">
+            <Weight className="w-5 h-5" />
           </div>
+          <div>
+            <span className="block text-[10px] font-mono font-black text-zinc-500 uppercase">Total Weight</span>
+            <span className="text-xl font-black font-mono text-zinc-900">{stats.totalWeight} Tons</span>
+          </div>
+        </div>
 
-          {!selectedDate ? (
-            <div className="text-center py-10 font-mono text-xs text-zinc-400 italic">
-              Click any calendar cell to view planned operations for that day.
-            </div>
-          ) : selectedDateSchedules.length === 0 ? (
-            <div className="text-center py-10 space-y-2">
-              <CalendarIcon className="w-10 h-10 mx-auto text-zinc-300" />
-              <p className="font-mono text-xs text-zinc-500 font-bold">NO JOBS SCHEDULED</p>
-              <p className="text-[10px] text-zinc-400">There are no crane schedules registered on {selectedDate}.</p>
-            </div>
-          ) : (
-            <div className="space-y-4 max-h-[450px] xl:max-h-[600px] overflow-y-auto pr-1">
-              <p className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-wider">
-                Planned operations ({selectedDateSchedules.length}):
-              </p>
-              
-              {selectedDateSchedules.map((s) => (
-                <div key={s.id} className="bg-zinc-50 border-2 border-[#141414] p-3.5 rounded-sm shadow-[2px_2px_0px_rgba(0,0,0,0.05)] space-y-3 font-sans">
-                  
-                  {/* Job Header */}
-                  <div className="flex justify-between items-start border-b border-zinc-200 pb-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`px-2 py-0.5 border text-[9px] font-mono font-black uppercase rounded-sm ${getCraneColorClass(s.assignedCrane)}`}>
-                        🏗️ {s.assignedCrane}
-                      </span>
-                      {s.secondaryCrane && (
-                        <span className={`px-2 py-0.5 border text-[9px] font-mono font-black uppercase rounded-sm ${getCraneColorClass(s.secondaryCrane)}`}>
-                          🏗️ {s.secondaryCrane}
+        {/* KPI 3 */}
+        <div className="bg-zinc-50 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] p-4 rounded-sm flex items-center gap-3">
+          <div className="p-2.5 bg-zinc-900 text-amber-400 border border-zinc-700 rounded-sm">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="block text-[10px] font-mono font-black text-zinc-500 uppercase">Critical Lifts</span>
+            <span className="text-xl font-black font-mono text-zinc-900">{stats.criticalLifts} High</span>
+          </div>
+        </div>
+
+        {/* KPI 4 */}
+        <div className="bg-zinc-50 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] p-4 rounded-sm flex items-center gap-3">
+          <div className="p-2.5 bg-zinc-900 text-amber-400 border border-zinc-700 rounded-sm">
+            <HardHat className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="block text-[10px] font-mono font-black text-zinc-500 uppercase">Active Assets</span>
+            <span className="text-xl font-black font-mono text-zinc-900">{stats.activeCranes} Gantries</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Table / List Box */}
+      <div className="bg-white rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] overflow-hidden">
+        <div className="bg-zinc-950 p-3 px-4 border-b-2 border-[#141414] flex justify-between items-center text-white font-mono text-xs">
+          <div className="flex items-center gap-2 font-black">
+            <Calendar className="w-4 h-4 text-amber-500" />
+            <span>ARCHIVED LOGS ({filteredHistory.length} ENTRIES FOUND)</span>
+          </div>
+          <span className="text-[10px] text-zinc-400 font-bold hidden sm:inline">
+            A4 Landcape Export Optimized
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse font-sans">
+            <thead>
+              <tr className="bg-zinc-100 border-b-2 border-[#141414] text-[#141414] font-mono text-[11px] font-black uppercase">
+                <th className="py-3 px-4">Date</th>
+                <th className="py-3 px-4">Gantry/Crane</th>
+                <th className="py-3 px-4">Shift</th>
+                <th className="py-3 px-4">Dept</th>
+                <th className="py-3 px-4">Time Window</th>
+                <th className="py-3 px-4">Bay & Column</th>
+                <th className="py-3 px-4 text-right">Weight</th>
+                <th className="py-3 px-4 text-center">Priority</th>
+                <th className="py-3 px-4 text-center">Status</th>
+                <th className="py-3 px-4">Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 text-xs">
+              {filteredHistory.length > 0 ? (
+                filteredHistory.map((job) => {
+                  const isTandem = job.isTandemLift || !!job.secondaryCrane;
+                  return (
+                    <tr 
+                      key={job.id} 
+                      className={`hover:bg-amber-50/10 transition-colors ${
+                        isTandem ? "bg-amber-50/20" : ""
+                      }`}
+                    >
+                      {/* Date */}
+                      <td className="py-3 px-4 font-mono font-black text-zinc-900 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span>{job.date}</span>
+                        </div>
+                      </td>
+
+                      {/* Gantry/Crane */}
+                      <td className="py-3 px-4 font-mono">
+                        {isTandem ? (
+                          <div className="space-y-0.5">
+                            <span className="px-1.5 py-0.5 bg-amber-500 text-slate-950 font-black border border-slate-950 text-[10px] rounded-sm mr-1">Tandem</span>
+                            <span className="font-extrabold text-[#141414]">{job.assignedCrane} + {job.secondaryCrane}</span>
+                          </div>
+                        ) : (
+                          <span className="font-black text-[#141414] bg-zinc-100 border border-zinc-300 px-2 py-0.5 rounded-sm">
+                            Gantry {job.assignedCrane}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Shift */}
+                      <td className="py-3 px-4 font-mono text-zinc-600 font-bold whitespace-nowrap">
+                        {job.shift}
+                      </td>
+
+                      {/* Dept */}
+                      <td className="py-3 px-4">
+                        <span className="bg-zinc-100 text-zinc-800 border border-zinc-300 px-2 py-0.5 text-[10px] font-black font-mono uppercase rounded-sm whitespace-nowrap">
+                          {job.department}
                         </span>
-                      )}
-                    </div>
-                    <span className={`px-2 py-0.5 border text-[8px] font-mono font-black uppercase rounded-sm ${getPriorityBadgeClass(s.priority)}`}>
-                      {s.priority}
-                    </span>
-                  </div>
+                      </td>
 
-                  {/* Job Details */}
-                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono font-bold text-zinc-700">
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
-                      <span>{s.startTime} - {s.endTime}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
-                      <span className="capitalize">{s.shift}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Building2 className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
-                      <span className="truncate">{s.department}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Weight className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
-                      <span>{s.weight} Tons</span>
-                    </div>
-                  </div>
+                      {/* Time Window */}
+                      <td className="py-3 px-4 font-mono text-zinc-900 font-black whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                          <span>{job.startTime}</span>
+                          <ArrowRight className="w-2.5 h-2.5 text-zinc-400 shrink-0" />
+                          <span>{job.endTime}</span>
+                        </div>
+                      </td>
 
-                  {/* Columns Range */}
-                  <div className="bg-zinc-100 border border-zinc-200 px-2.5 py-1.5 rounded-sm text-[10px] font-mono flex items-center justify-between">
-                    <span className="text-zinc-500 font-extrabold uppercase text-[9px]">COLUMN RANGE:</span>
-                    <span className="font-black text-zinc-950 flex items-center gap-1.5">
-                      Col {s.startColumn}
-                      <ArrowRightLeft className="w-3 h-3 text-zinc-400" />
-                      Col {s.endColumn}
-                    </span>
-                  </div>
+                      {/* Location (Bay & Column) */}
+                      <td className="py-3 px-4 font-mono font-bold text-zinc-800">
+                        Bay {job.bay || "A"} : Col {job.startColumn !== undefined && job.endColumn !== undefined ? `${job.startColumn}-${job.endColumn}` : job.column}
+                      </td>
 
-                  {/* Remarks */}
-                  {s.remarks && (
-                    <div className="border-t border-zinc-200 pt-2 text-[10px] font-sans font-medium text-zinc-600 bg-amber-50/40 p-2 border border-dashed border-amber-300/60 rounded">
-                      <span className="font-extrabold text-zinc-700 block uppercase font-mono text-[8px] tracking-wide mb-0.5">Operator Remarks:</span>
-                      "{s.remarks}"
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                      {/* Weight */}
+                      <td className="py-3 px-4 font-mono font-black text-zinc-900 text-right whitespace-nowrap">
+                        {job.weight} Ton
+                      </td>
+
+                      {/* Priority */}
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded-sm text-[10px] font-mono uppercase border ${getPriorityBadgeClass(job.priority)}`}>
+                          {job.priority}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3 px-4 text-center font-mono">
+                        <span className={`px-2 py-0.5 rounded-sm text-[9px] font-black uppercase border ${
+                          job.status === "Completed" ? "bg-emerald-100 border-emerald-400 text-emerald-950" :
+                          job.status === "In Progress" ? "bg-amber-100 border-amber-400 text-amber-950" :
+                          "bg-blue-100 border-blue-400 text-blue-950"
+                        }`}>
+                          {job.status}
+                        </span>
+                      </td>
+
+                      {/* Remarks */}
+                      <td className="py-3 px-4 text-zinc-600 max-w-[200px] truncate" title={job.remarks}>
+                        {job.remarks || "-"}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={10} className="py-10 text-center text-zinc-400 font-mono text-xs">
+                    No scheduled operations matched the selected filters. Change date ranges or shift selections above.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
