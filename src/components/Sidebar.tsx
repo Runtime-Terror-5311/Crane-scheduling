@@ -10,7 +10,8 @@ import {
   ShieldAlert, 
   HardHat, 
   LogOut,
-  Sliders
+  Sliders,
+  Calendar
 } from "lucide-react";
 import { User } from "../types";
 
@@ -18,8 +19,8 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   user: User;
-  activePage: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin";
-  setActivePage: (page: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin") => void;
+  activePage: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar";
+  setActivePage: (page: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar") => void;
   onLogout: () => void;
   selectedBay: string;
 }
@@ -64,6 +65,12 @@ export default function Sidebar({
       label: "Generate Requirements",
       description: "Log new crane requirements",
       icon: PlusCircle
+    },
+    {
+      id: "calendar" as const,
+      label: "Crane Calendar",
+      description: "Month-wise crane schedules",
+      icon: Calendar
     },
     ...(user.role === "Admin" ? [
       {

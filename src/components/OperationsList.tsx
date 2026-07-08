@@ -100,6 +100,16 @@ export default function OperationsList({
   const [selectedPriority, setSelectedPriority] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"scheduled" | "conflicts" | "history">("scheduled");
 
+  const [historyStartDate, setHistoryStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30); // Default to 30 days ago
+    return d.toISOString().split("T")[0];
+  });
+  const [historyEndDate, setHistoryEndDate] = useState<string>(() => {
+    return new Date().toISOString().split("T")[0]; // Default to today
+  });
+  const [historyShiftFilter, setHistoryShiftFilter] = useState<string>("ALL");
+
   // Helper to parse HH:MM to numerical minutes for sorting
   const timeToMinutes = (timeStr: string): number => {
     if (!timeStr) return 0;
@@ -223,38 +233,7 @@ export default function OperationsList({
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }, [requests, schedules]);
 
-  // Group completed operations and compute total hours shift-wise for each crane
-  const craneShiftSummary = useMemo(() => {
-    const summary: Record<string, Record<string, { count: number; totalMins: number }>> = {};
-    
-    cranes.forEach((c) => {
-      summary[c.id] = { 
-        "Shift A": { count: 0, totalMins: 0 }, 
-        "Shift B": { count: 0, totalMins: 0 }, 
-        "Shift C": { count: 0, totalMins: 0 }, 
-        "General Shift": { count: 0, totalMins: 0 } 
-      };
-    });
 
-    completedOperations.forEach((op) => {
-      const craneId = op.assignedCrane || (cranes[0]?.id || "A1");
-      const shift = op.shift || "General Shift";
-
-      const startMins = timeToMinutes(op.startTime);
-      const endMins = timeToMinutes(op.endTime);
-      const duration = endMins >= startMins ? (endMins - startMins) : (1440 - startMins + endMins);
-
-      if (summary[craneId]) {
-        if (!summary[craneId][shift]) {
-          summary[craneId][shift] = { count: 0, totalMins: 0 };
-        }
-        summary[craneId][shift].count += 1;
-        summary[craneId][shift].totalMins += duration;
-      }
-    });
-
-    return summary;
-  }, [completedOperations]);
 
   // Filters application for scheduled operations
   const filteredScheduled = useMemo(() => {
@@ -309,11 +288,16 @@ export default function OperationsList({
         (op.department || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
         (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchesShift = selectedShift === "ALL" || op.shift === selectedShift;
+      const matchesShift = historyShiftFilter === "ALL" || op.shift === historyShiftFilter;
       const matchesPriority = selectedPriority === "ALL" || op.priority === selectedPriority;
       
       const matchesCrane = selectedCraneFilter === "ALL" || 
         op.assignedCrane === selectedCraneFilter;
+
+      // Date Range Filters
+      const opDate = op.createdAt ? op.createdAt.split("T")[0] : "";
+      const matchesStartDate = !historyStartDate || !opDate || opDate >= historyStartDate;
+      const matchesEndDate = !historyEndDate || !opDate || opDate <= historyEndDate;
 
       // Area filter: matches area
       let matchesArea = true;
@@ -328,9 +312,42 @@ export default function OperationsList({
         }
       }
 
-      return matchesSearch && matchesShift && matchesPriority && matchesCrane && matchesArea;
+      return matchesSearch && matchesShift && matchesPriority && matchesCrane && matchesArea && matchesStartDate && matchesEndDate;
     });
-  }, [completedOperations, searchTerm, selectedShift, selectedPriority, selectedCraneFilter, selectedAreaFilter]);
+  }, [completedOperations, searchTerm, selectedPriority, selectedCraneFilter, selectedAreaFilter, historyStartDate, historyEndDate, historyShiftFilter]);
+
+  // Group completed operations and compute total hours shift-wise for each crane
+  const craneShiftSummary = useMemo(() => {
+    const summary: Record<string, Record<string, { count: number; totalMins: number }>> = {};
+    
+    cranes.forEach((c) => {
+      summary[c.id] = { 
+        "Shift A": { count: 0, totalMins: 0 }, 
+        "Shift B": { count: 0, totalMins: 0 }, 
+        "Shift C": { count: 0, totalMins: 0 }, 
+        "General Shift": { count: 0, totalMins: 0 } 
+      };
+    });
+
+    filteredCompleted.forEach((op) => {
+      const craneId = op.assignedCrane || (cranes[0]?.id || "A1");
+      const shift = op.shift || "General Shift";
+
+      const startMins = timeToMinutes(op.startTime);
+      const endMins = timeToMinutes(op.endTime);
+      const duration = endMins >= startMins ? (endMins - startMins) : (1440 - startMins + endMins);
+
+      if (summary[craneId]) {
+        if (!summary[craneId][shift]) {
+          summary[craneId][shift] = { count: 0, totalMins: 0 };
+        }
+        summary[craneId][shift].count += 1;
+        summary[craneId][shift].totalMins += duration;
+      }
+    });
+
+    return summary;
+  }, [filteredCompleted, cranes]);
 
   // Group scheduled operations by Crane
   const scheduledByCrane = useMemo(() => {
@@ -845,6 +862,56 @@ export default function OperationsList({
             </div>
           </div>
 
+          {/* History Date & Shift Filter Bar */}
+          <div className="bg-white rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] p-4 font-mono text-xs space-y-4">
+            <div className="flex items-center gap-2 border-b border-zinc-200 pb-2">
+              <CalendarDays className="w-4 h-4 text-amber-600" />
+              <span className="font-black text-zinc-900 uppercase">Select Start Date, End Date, and Shift for Exporting / Filtering History</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={historyStartDate}
+                  onChange={(e) => setHistoryStartDate(e.target.value)}
+                  className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={historyEndDate}
+                  onChange={(e) => setHistoryEndDate(e.target.value)}
+                  className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-zinc-500 mb-1">
+                  Shift Option
+                </label>
+                <select
+                  value={historyShiftFilter}
+                  onChange={(e) => setHistoryShiftFilter(e.target.value)}
+                  className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+                >
+                  <option value="ALL">All Shifts (ALL)</option>
+                  <option value="Shift A">Shift A (06:00-14:00)</option>
+                  <option value="Shift B">Shift B (14:00-22:00)</option>
+                  <option value="Shift C">Shift C (22:00-06:00)</option>
+                  <option value="General Shift">General Shift (09:00-18:30)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           {/* Crane Shift-wise Working Hours Summary */}
           <div className="bg-zinc-900 text-white rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] p-5 font-sans space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -854,14 +921,14 @@ export default function OperationsList({
                   Gantry Shift-wise Cumulative Working Hours & Performance
                 </h4>
                 <p className="text-[11px] text-zinc-400 mt-1 font-mono">
-                  Calculated based on completed operations archived in historical registries.
+                  Calculated based on completed operations filtered dynamically by your selections.
                 </p>
               </div>
 
               <button
-                onClick={() => generateCraneWorkingHoursPDF(completedOperations)}
+                onClick={() => generateCraneWorkingHoursPDF(filteredCompleted, historyStartDate, historyEndDate, historyShiftFilter)}
                 className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 border border-[#141414] text-slate-950 rounded-sm text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-                title="Download comprehensive PDF with shift summary and logs"
+                title="Download comprehensive PDF filtered by start, end date and shift"
               >
                 <Download className="w-4 h-4" />
                 Download PDF Report

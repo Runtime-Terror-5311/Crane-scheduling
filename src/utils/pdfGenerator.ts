@@ -3,6 +3,13 @@ import autoTable from "jspdf-autotable";
 import { Schedule, CraneRequest } from "../types.js";
 import { isScheduleInShiftBoundary } from "./shiftUtils.js";
 
+const SHIFT_WINDOWS: Record<string, [number, number]> = {
+  "Shift A": [6 * 60, 14 * 60], // 06:00–14:00
+  "Shift B": [14 * 60, 22 * 60], // 14:00–22:00
+  "Shift C": [22 * 60, 30 * 60], // 22:00–06:00 next day
+  "General Shift": [9 * 60, 18 * 60 + 30], // 09:00–18:30
+};
+
 function parseTimeToMinutes(t: string): number {
   if (!t || !t.includes(":")) return 0;
   const [h, m] = t.split(":").map(Number);
@@ -25,6 +32,49 @@ const formatMinutes = (mins: number): string => {
   return `${h}h ${m}m`;
 };
 
+function getNormalizedMins(timeStr: string, shiftStr: string): number {
+  const mins = parseTimeToMinutes(timeStr);
+  if (shiftStr === "Shift C" && mins < 12 * 60) {
+    return mins + 24 * 60;
+  }
+  return mins;
+}
+
+function getNowMinsInShift(dateStr: string, shiftStr: string, now: Date): number {
+  const [startMins, endMins] = SHIFT_WINDOWS[shiftStr] || [360, 840];
+  
+  const nowOnlyDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const shiftStartDate = new Date(y, m - 1, d);
+  
+  const diffTime = nowOnlyDate.getTime() - shiftStartDate.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) {
+    // Future shift
+    return startMins;
+  } else if (diffDays > 1 || (diffDays === 1 && shiftStr !== "Shift C")) {
+    // Past shift
+    return endMins;
+  } else if (diffDays === 1 && shiftStr === "Shift C") {
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    if (currentMins >= 6 * 60) {
+      return endMins; // Past shift
+    }
+    return currentMins + 24 * 60; // Currently in progress
+  } else {
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    if (shiftStr === "Shift C") {
+      if (currentMins < 12 * 60) {
+        return startMins; // Future
+      }
+      return currentMins;
+    } else {
+      return currentMins;
+    }
+  }
+}
+
 export function generateDateWisePDF(schedules: Schedule[], requests: CraneRequest[]) {
   const doc = new jsPDF({
     orientation: "portrait",
@@ -32,10 +82,11 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
     format: "a4"
   });
 
+  const now = new Date();
+
   // Structure: groups[date][shift][craneId] = { workingMinutes: number, jobCount: number }
   const groups: Record<string, Record<string, Record<string, { workingMinutes: number; jobCount: number }>>> = {};
 
-  // Consider all crane timetables (schedules) directly as working time
   schedules.forEach((sched) => {
     const req = requests.find((r) => r.id === sched.requestId);
     
@@ -45,18 +96,22 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
       return;
     }
 
-    // Fallback date and shift if the original request is missing
     const dateStr = req?.createdAt ? req.createdAt.split("T")[0] : new Date().toISOString().split("T")[0];
     const shiftStr = req?.shift || "General Shift";
 
-    // Filter schedules to those falling within their specific shift boundaries
     if (!isScheduleInShiftBoundary(sched.startTime, sched.endTime, shiftStr)) {
       return;
     }
 
-    const startMins = parseTimeToMinutes(sched.startTime);
-    const endMins = parseTimeToMinutes(sched.endTime);
-    const duration = endMins >= startMins ? (endMins - startMins) : (1440 - startMins + endMins);
+    // Dynamic Active Time Calculation: compute overlapping schedule time up to current local time (now)
+    const [shiftStartMins, shiftEndMins] = SHIFT_WINDOWS[shiftStr] || [360, 840];
+    const nowMins = getNowMinsInShift(dateStr, shiftStr, now);
+
+    const schedStartMins = getNormalizedMins(sched.startTime, shiftStr);
+    const schedEndMins = getNormalizedMins(sched.endTime, shiftStr);
+
+    // Overlap of the scheduled interval with the elapsed shift interval [shiftStartMins, nowMins]
+    const elapsedWorking = Math.max(0, Math.min(schedEndMins, nowMins) - Math.max(schedStartMins, shiftStartMins));
 
     if (!groups[dateStr]) {
       groups[dateStr] = {};
@@ -74,12 +129,11 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
       if (!groups[dateStr][shiftStr][craneId]) {
         groups[dateStr][shiftStr][craneId] = { workingMinutes: 0, jobCount: 0 };
       }
-      groups[dateStr][shiftStr][craneId].workingMinutes += duration;
+      groups[dateStr][shiftStr][craneId].workingMinutes += elapsedWorking;
       groups[dateStr][shiftStr][craneId].jobCount += 1;
     });
   });
 
-  // Sort dates descending (recent first)
   const sortedDates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
 
   // Document Title & Styling
@@ -91,7 +145,7 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
   doc.setFont("Helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
-  doc.text(`Generated on: ${new Date().toLocaleString()} | Summary of Crane Working vs. Idle conditions`, 14, 26);
+  doc.text(`Generated on: ${now.toLocaleString()} | Dynamic summary based on current elapsed shift times`, 14, 26);
 
   // Decorative Steel Line
   doc.setDrawColor(20, 20, 20);
@@ -109,7 +163,6 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
     return;
   }
 
-  // Flatten nested records into flat rows for the autoTable
   const tableRows: any[] = [];
 
   sortedDates.forEach((dateStr) => {
@@ -118,13 +171,11 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
 
     sortedShifts.forEach((shiftStr) => {
       const cranesData = shifts[shiftStr];
-      // Dynamic crane retrieval from schedules to ensure we show all cranes even if idle
       const allCranesSet = new Set<string>();
       schedules.forEach((s) => {
         if (s.assignedCrane) allCranesSet.add(s.assignedCrane);
         if (s.secondaryCrane) allCranesSet.add(s.secondaryCrane);
       });
-      // Fallback defaults if none found
       if (allCranesSet.size === 0) {
         allCranesSet.add("A1");
         allCranesSet.add("A2");
@@ -132,12 +183,19 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
       }
       const allCranes = Array.from(allCranesSet).sort();
 
+      const [shiftStartMins, shiftEndMins] = SHIFT_WINDOWS[shiftStr] || [360, 840];
+      const nowMins = getNowMinsInShift(dateStr, shiftStr, now);
+      const elapsedShiftDuration = Math.max(0, Math.min(shiftEndMins, nowMins) - shiftStartMins);
+      const shiftDuration = shiftEndMins - shiftStartMins;
+
+      // If the shift is future/not started, utilization shows based on planned full duration with 0 work
+      const denom = elapsedShiftDuration > 0 ? elapsedShiftDuration : shiftDuration;
+
       allCranes.forEach((craneId) => {
         const stats = cranesData[craneId] || { workingMinutes: 0, jobCount: 0 };
-        const shiftDuration = getShiftDuration(shiftStr);
-        const workingMins = stats.workingMinutes;
-        const idleMins = Math.max(0, shiftDuration - workingMins);
-        const utilization = Math.min(Math.round((workingMins / shiftDuration) * 100), 100);
+        const workingMins = Math.min(stats.workingMinutes, denom);
+        const idleMins = Math.max(0, denom - workingMins);
+        const utilization = Math.min(Math.round((workingMins / denom) * 100), 100);
 
         tableRows.push([
           dateStr,
@@ -151,8 +209,7 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
     });
   });
 
-  // Table header definitions
-  const tableHeaders = ["Date", "Operational Shift", "Gantry/Crane", "Total Working Time", "Total Idle Time", "Utilization Rate"];
+  const tableHeaders = ["Date", "Operational Shift", "Gantry/Crane", "Active Time (to current time)", "Idle Time (to current time)", "Utilization Rate"];
 
   autoTable(doc, {
     startY: currentY,
@@ -174,16 +231,15 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
       fontSize: 9
     },
     columnStyles: {
-      0: { cellWidth: 30, fontStyle: "bold" }, // Date
-      1: { cellWidth: 42 }, // Shift
+      0: { cellWidth: 25, fontStyle: "bold" }, // Date
+      1: { cellWidth: 35 }, // Shift
       2: { cellWidth: 25, fontStyle: "bold", halign: "center" }, // Crane
-      3: { cellWidth: 30, fontStyle: "bold" }, // Working Time
-      4: { cellWidth: 30 }, // Idle Time
-      5: { cellWidth: 25, fontStyle: "bold", halign: "center" } // Utilization
+      3: { cellWidth: 40, fontStyle: "bold" }, // Working Time
+      4: { cellWidth: 40 }, // Idle Time
+      5: { cellWidth: 27, fontStyle: "bold", halign: "center" } // Utilization
     },
     margin: { left: 14, right: 14 },
     didDrawPage: (data) => {
-      // Page Footer
       doc.setFont("Helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
@@ -194,14 +250,18 @@ export function generateDateWisePDF(schedules: Schedule[], requests: CraneReques
   doc.save(`crane_operational_efficiency_report_${new Date().toISOString().split("T")[0]}.pdf`);
 }
 
-export function generateCraneWorkingHoursPDF(completedOps: any[]) {
+export function generateCraneWorkingHoursPDF(
+  completedOps: any[],
+  startDate?: string,
+  endDate?: string,
+  shift?: string
+) {
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
     format: "a4"
   });
 
-  // Calculate stats by Crane and Shift dynamically
   const summaryMap: Record<string, Record<string, { jobCount: number; totalMinutes: number }>> = {};
   
   const cranesInOps = Array.from(new Set(completedOps.map(op => op.assignedCrane).filter(Boolean)));
@@ -220,7 +280,7 @@ export function generateCraneWorkingHoursPDF(completedOps: any[]) {
 
   completedOps.forEach((op) => {
     const craneId = op.assignedCrane || (cranesInOps[0] || "A1");
-    const shift = op.shift || "General Shift";
+    const opShift = op.shift || "General Shift";
     
     const startMins = parseTimeToMinutes(op.startTime);
     const endMins = parseTimeToMinutes(op.endTime);
@@ -235,11 +295,11 @@ export function generateCraneWorkingHoursPDF(completedOps: any[]) {
       };
     }
 
-    if (summaryMap[craneId][shift]) {
-      summaryMap[craneId][shift].jobCount += 1;
-      summaryMap[craneId][shift].totalMinutes += duration;
+    if (summaryMap[craneId][opShift]) {
+      summaryMap[craneId][opShift].jobCount += 1;
+      summaryMap[craneId][opShift].totalMinutes += duration;
     } else {
-      summaryMap[craneId][shift] = { jobCount: 1, totalMinutes: duration };
+      summaryMap[craneId][opShift] = { jobCount: 1, totalMinutes: duration };
     }
   });
 
@@ -252,7 +312,16 @@ export function generateCraneWorkingHoursPDF(completedOps: any[]) {
   doc.setFont("Helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(100, 100, 100);
-  doc.text(`Generated on: ${new Date().toLocaleString()} | Historical Utilization & Performance Summary`, 14, 26);
+
+  let subtitle = "Historical Utilization & Performance Summary";
+  if (startDate && endDate) {
+    subtitle += ` | Filter: ${startDate} to ${endDate}`;
+  }
+  if (shift && shift !== "ALL") {
+    subtitle += ` | Shift: ${shift}`;
+  }
+
+  doc.text(`Generated on: ${new Date().toLocaleString()} | ${subtitle}`, 14, 26);
 
   // Decorative Steel Line
   doc.setDrawColor(20, 20, 20);
@@ -374,4 +443,3 @@ export function generateCraneWorkingHoursPDF(completedOps: any[]) {
 
   doc.save(`crane_working_hours_summary_${new Date().toISOString().split("T")[0]}.pdf`);
 }
-

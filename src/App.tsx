@@ -8,6 +8,7 @@ import DashboardSupervisor from "./components/DashboardSupervisor";
 import DashboardAdmin from "./components/DashboardAdmin";
 import Sidebar from "./components/Sidebar";
 import CranesSpecifications from "./components/CranesSpecifications";
+import CraneCalendar from "./components/CraneCalendar";
 import { User, Crane, CraneRequest, Schedule, AuditLog, ShiftReport } from "./types";
 
 export default function App() {
@@ -15,7 +16,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
 
   // Pages layout state
-  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin">("home");
+  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar">("home");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Core telemetries
@@ -738,6 +739,17 @@ export default function App() {
                 onUpdateUser={handleUpdateUser}
                 onDeleteUser={handleDeleteUser}
                 onReopenRequest={handleReopenRequest}
+              />
+            </div>
+          )}
+
+          {/* Page 7: Crane Calendar registry */}
+          {activePage === "calendar" && (
+            <div id="calendar_page">
+              <CraneCalendar
+                schedules={schedules}
+                requests={requests}
+                cranes={cranes}
               />
             </div>
           )}
