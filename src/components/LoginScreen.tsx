@@ -157,10 +157,10 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <Landmark className="w-8 h-8" />
           </div>
           <h1 className="text-xl font-black tracking-tighter text-[#141414] font-sans text-center uppercase">
-            CRANE-OPS <span className="text-amber-600">v1.0</span>
+            CRANE-OPS <span className="text-amber-600">v2.4</span>
           </h1>
           <p className="text-[10px] text-zinc-600 mt-1 uppercase tracking-widest font-mono font-bold">
-            Crane Scheduling & Shift Planning System
+            BAY 01 - NORTH WING SYSTEM TERMINAL
           </p>
         </div>
 
@@ -262,7 +262,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               className="w-full py-3 bg-amber-600 text-white font-black text-xs uppercase tracking-[0.2em] border-2 border-[#141414] shadow-[4px_4px_0px_#141414] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[3px_3px_0px_#141414] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all cursor-pointer"
               disabled={loading}
             >
-              {loading ? "Loading ..." : "AUTHENTICATE BADGE"}
+              {loading ? "DECRYPTING CREDENTIALS..." : "AUTHENTICATE BADGE"}
             </button>
           </form>
         ) : (

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Activity, AlertTriangle, Hammer, ShieldAlert, Compass } from "lucide-react";
 import { Crane, Schedule, CraneRequest } from "../types";
-import { isScheduleInShiftBoundary, isTimeWithinRange } from "../utils/shiftUtils";
+import { isScheduleInShiftBoundary, isTimeWithinRange, getCurrentShift, formatTimeTo12Hr } from "../utils/shiftUtils";
 
 interface BayVisualizationProps {
   cranes: Crane[];
@@ -82,7 +82,7 @@ export default function BayVisualization({
     const sCol = nextJob.startColumn !== undefined ? nextJob.startColumn : nextJob.column;
     const eCol = nextJob.endColumn !== undefined ? nextJob.endColumn : nextJob.column;
     const colStr = sCol === eCol ? `Col ${sCol}` : `Cols ${sCol}-${eCol}`;
-    return `${colStr} (${nextJob.startTime}-${nextJob.endTime}): ${nextJob.remarks || "Material Transposition"}`;
+    return `${colStr} (${formatTimeTo12Hr(nextJob.startTime)}-${formatTimeTo12Hr(nextJob.endTime)}): ${nextJob.remarks || "Material Transposition"}`;
   };
 
   // 1. Mobile Vertical Layout Representation
@@ -93,10 +93,10 @@ export default function BayVisualization({
         <div className="border-b-2 border-zinc-200 pb-3 mb-4">
           <h2 className="text-xs font-black uppercase tracking-tighter flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-amber-600 border border-[#141414]"></span>
-            Shop Floor Runway Array (Vertical Feed)
+            Shop Floor Runway (Current Shift &amp; Date Only)
           </h2>
           <p className="text-[10px] text-zinc-500 mt-0.5 font-bold">
-            Live spatial telemetry feed. Scale ratio: 1 Column = 10 Meters.
+            Showing Active Shift: {getCurrentShift(currentTime)} • Today: {currentTime.toISOString().split("T")[0]}
           </p>
         </div>
 
@@ -159,10 +159,12 @@ export default function BayVisualization({
                 }
                 return true;
               });
-              const currentStatus = crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
+              const currentStatus = crane.status === "Breakdown" ? "Breakdown" : crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
 
               const statusBg = 
-                currentStatus === "Maintenance"
+                currentStatus === "Breakdown"
+                  ? "bg-red-800 text-white animate-pulse"
+                  : currentStatus === "Maintenance"
                   ? "bg-red-600 text-white"
                   : currentStatus === "Busy"
                   ? "bg-amber-500 text-slate-950"
@@ -225,10 +227,12 @@ export default function BayVisualization({
               }
               return true;
             });
-            const currentStatus = crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
+            const currentStatus = crane.status === "Breakdown" ? "Breakdown" : crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
 
             const statusBg = 
-              currentStatus === "Maintenance"
+              currentStatus === "Breakdown"
+                ? "bg-red-100 border-red-700 text-red-950 animate-pulse"
+                : currentStatus === "Maintenance"
                 ? "bg-red-50 border-red-500 text-red-950"
                 : currentStatus === "Busy"
                 ? "bg-amber-50 border-amber-600 text-amber-950"
@@ -251,7 +255,12 @@ export default function BayVisualization({
                     <span>Active Position:</span>
                     <span className="text-[#141414] font-black">Col {crane.currentColumn}</span>
                   </div>
-                  {crane.status === "Maintenance" ? (
+                  {crane.status === "Breakdown" ? (
+                    <div className="text-[9px] text-red-950 flex items-start gap-1 mt-1 p-1 bg-red-100 border border-red-600 rounded-sm font-black uppercase">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-red-700 animate-bounce" />
+                      <span>CRITICAL BREAKDOWN ACTIVE!</span>
+                    </div>
+                  ) : crane.status === "Maintenance" ? (
                     <div className="text-[9px] text-red-900 flex items-start gap-1 mt-1 p-1 bg-red-100 border border-red-400 rounded-sm">
                       <Hammer className="w-3 h-3 flex-shrink-0 mt-0.5" />
                       <span>{crane.maintenanceNotes || "Scheduled Safety Audit."}</span>
@@ -277,12 +286,12 @@ export default function BayVisualization({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b-2 border-zinc-200 pb-4 mb-6">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-tighter flex items-center gap-2">
+          <h2 className="text-sm font-black uppercase tracking-tighter flex items-center gap-2 text-amber-600">
             <span className="w-3 h-3 bg-amber-600 border border-[#141414]"></span>
-            Shop Floor Runway Array (Columns 1-30)
+            Shop Floor Runway (Current Shift &amp; Date Only)
           </h2>
-          <p className="text-[11px] text-zinc-500 font-mono mt-0.5 font-bold">
-            Live spatial telemetry feed. Scale ratio: 1 Column = 10 Meters.
+          <p className="text-[11px] text-zinc-500 font-mono mt-0.5 font-bold uppercase">
+            Active Shift: <span className="text-amber-600 font-black">{getCurrentShift(currentTime)}</span> • Date: <span className="text-amber-600 font-black">{currentTime.toISOString().split("T")[0]}</span> • Scale: 1 Col = 10m
           </p>
         </div>
         <div className="flex flex-wrap gap-3 text-[10px] font-mono font-bold">
@@ -345,10 +354,12 @@ export default function BayVisualization({
               }
               return true;
             });
-            const currentStatus = crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
+            const currentStatus = crane.status === "Breakdown" ? "Breakdown" : crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
 
             const statusBg = 
-              currentStatus === "Maintenance"
+              currentStatus === "Breakdown"
+                ? "bg-red-800 text-white animate-pulse"
+                : currentStatus === "Maintenance"
                 ? "bg-red-600 text-white"
                 : currentStatus === "Busy"
                 ? "bg-amber-500 text-slate-950"
@@ -430,10 +441,12 @@ export default function BayVisualization({
             }
             return true;
           });
-          const currentStatus = crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
+          const currentStatus = crane.status === "Breakdown" ? "Breakdown" : crane.status === "Maintenance" ? "Maintenance" : isBusy ? "Busy" : "Available";
 
           const statusBg = 
-            currentStatus === "Maintenance"
+            currentStatus === "Breakdown"
+              ? "bg-red-100 border-red-700 text-red-950 animate-pulse"
+              : currentStatus === "Maintenance"
               ? "bg-red-50 border-red-500 text-red-950"
               : currentStatus === "Busy"
               ? "bg-amber-50 border-amber-600 text-amber-950"
@@ -460,7 +473,12 @@ export default function BayVisualization({
                   <span>Current Position:</span>
                   <span className="text-[#141414]">Column {crane.currentColumn}</span>
                 </div>
-                {crane.status === "Maintenance" ? (
+                {crane.status === "Breakdown" ? (
+                  <div className="text-[10px] text-red-950 flex items-start gap-1 mt-2 p-1.5 bg-red-100 border border-red-600 rounded-sm font-black uppercase">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-700 animate-bounce" />
+                    <span>CRITICAL BREAKDOWN ACTIVE!</span>
+                  </div>
+                ) : crane.status === "Maintenance" ? (
                   <div className="text-[10px] text-red-900 flex items-start gap-1 mt-2 p-1.5 bg-red-100 border border-red-400 rounded-sm">
                     <Hammer className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                     <span>{crane.maintenanceNotes || "Scheduled Safety Audit."}</span>

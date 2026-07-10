@@ -88,3 +88,17 @@ export function isTimeWithinRange(currentTime: Date, startTimeStr: string, endTi
     return currMins >= startMins && currMins <= endMins;
   }
 }
+
+export function formatTimeTo12Hr(timeStr: string): string {
+  if (!timeStr) return "";
+  const parts = timeStr.split(":");
+  if (parts.length < 2) return timeStr;
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mFormatted = String(m).padStart(2, "0");
+  return `${h}:${mFormatted} ${ampm}`;
+}

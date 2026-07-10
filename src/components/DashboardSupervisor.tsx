@@ -46,21 +46,39 @@ export default function DashboardSupervisor({
   const [craneError, setCraneError] = useState("");
   const [editingCraneId, setEditingCraneId] = useState<string | null>(null);
 
-  const [addCraneId, setAddCraneId] = useState("");
+  const getBayLetter = (b: string): string => {
+    const bayLetters: Record<string, string> = {
+      "1": "A",
+      "2": "B",
+      "3": "C",
+      "4": "D",
+      "5": "E",
+      "6": "F",
+      "7": "G"
+    };
+    return bayLetters[b] || b;
+  };
+
+  const userArea = user.area || 1;
+  const userBay = getBayForArea(userArea);
+  const userBayLetter = getBayLetter(userBay);
+  const areaCols = getColumnsForArea(userArea);
+
+  const [addCraneId, setAddCraneId] = useState(() => user.role === "Area User" ? userBayLetter : "");
   const [addCraneName, setAddCraneName] = useState("");
   const [addCraneCap, setAddCraneCap] = useState<number>(10);
   const [addCraneAuxCap, setAddCraneAuxCap] = useState<string>("");
-  const [addCraneCol, setAddCraneCol] = useState<number>(5);
+  const [addCraneCol, setAddCraneCol] = useState<number>(() => user.role === "Area User" ? Math.floor((areaCols.min + areaCols.max) / 2) : 5);
   const [addCraneMinCol, setAddCraneMinCol] = useState<number>(1);
   const [addCraneMaxCol, setAddCraneMaxCol] = useState<number>(30);
-  const [addCraneAllocatedMin, setAddCraneAllocatedMin] = useState<number>(1);
-  const [addCraneAllocatedMax, setAddCraneAllocatedMax] = useState<number>(30);
+  const [addCraneAllocatedMin, setAddCraneAllocatedMin] = useState<number>(() => user.role === "Area User" ? areaCols.min : 1);
+  const [addCraneAllocatedMax, setAddCraneAllocatedMax] = useState<number>(() => user.role === "Area User" ? areaCols.max : 30);
 
   const [craneName, setCraneName] = useState("");
   const [craneCap, setCraneCap] = useState<number>(10);
   const [craneAuxCap, setCraneAuxCap] = useState<string>("");
   const [craneCol, setCraneCol] = useState<number>(5);
-  const [craneStatus, setCraneStatus] = useState<"Available" | "Maintenance" | "Busy">("Available");
+  const [craneStatus, setCraneStatus] = useState<"Available" | "Maintenance" | "Busy" | "Breakdown">("Available");
   const [craneNotes, setCraneNotes] = useState("");
   const [craneMinCol, setCraneMinCol] = useState<number>(1);
   const [craneMaxCol, setCraneMaxCol] = useState<number>(30);
@@ -88,10 +106,23 @@ export default function DashboardSupervisor({
       setCraneError("ID, Name, and Capacity are required.");
       return;
     }
+
+    if (user.role === "Area User") {
+      const uppercaseId = addCraneId.trim().toUpperCase();
+      if (!uppercaseId.startsWith(userBayLetter)) {
+        setCraneError(`As Supervisor of Area ${user.area} (Bay ${userBay} - Runway ${userBayLetter}), your Crane ID must start with '${userBayLetter}' (e.g. ${userBayLetter}4).`);
+        return;
+      }
+      if (Number(addCraneAllocatedMin) < areaCols.min || Number(addCraneAllocatedMax) > areaCols.max) {
+        setCraneError(`Allocated columns must be strictly within your Area ${user.area} boundaries (${areaCols.min} to ${areaCols.max}).`);
+        return;
+      }
+    }
+
     if (!onCreateCrane) return;
 
     const success = await onCreateCrane({
-      id: addCraneId,
+      id: addCraneId.trim().toUpperCase(),
       name: addCraneName,
       capacity: Number(addCraneCap),
       auxCapacity: addCraneAuxCap !== "" ? Number(addCraneAuxCap) : undefined,
@@ -103,15 +134,15 @@ export default function DashboardSupervisor({
     });
 
     if (success) {
-      setAddCraneId("");
+      setAddCraneId(user.role === "Area User" ? userBayLetter : "");
       setAddCraneName("");
       setAddCraneCap(10);
       setAddCraneAuxCap("");
-      setAddCraneCol(15);
+      setAddCraneCol(user.role === "Area User" ? Math.floor((areaCols.min + areaCols.max) / 2) : 15);
       setAddCraneMinCol(1);
       setAddCraneMaxCol(30);
-      setAddCraneAllocatedMin(1);
-      setAddCraneAllocatedMax(30);
+      setAddCraneAllocatedMin(user.role === "Area User" ? areaCols.min : 1);
+      setAddCraneAllocatedMax(user.role === "Area User" ? areaCols.max : 30);
       setShowAddCrane(false);
       onRefresh();
     }
@@ -124,6 +155,18 @@ export default function DashboardSupervisor({
       setCraneError("Name and Capacity are required.");
       return;
     }
+
+    if (user.role === "Area User") {
+      if (craneAllocMin !== undefined && craneAllocMin < areaCols.min) {
+        setCraneError(`Allocated min column cannot be less than your area minimum (${areaCols.min}).`);
+        return;
+      }
+      if (craneAllocMax !== undefined && craneAllocMax > areaCols.max) {
+        setCraneError(`Allocated max column cannot be greater than your area maximum (${areaCols.max}).`);
+        return;
+      }
+    }
+
     if (!onUpdateCrane) return;
 
     await onUpdateCrane(craneId, {
@@ -251,11 +294,22 @@ export default function DashboardSupervisor({
   const [endColumn, setEndColumn] = useState<number>(5);
   const [startHour, setStartHour] = useState("08");
   const [startMinute, setStartMinute] = useState("00");
+  const [startAmpm, setStartAmpm] = useState("AM");
   const [endHour, setEndHour] = useState("09");
   const [endMinute, setEndMinute] = useState("00");
+  const [endAmpm, setEndAmpm] = useState("AM");
 
-  const startTime = `${startHour || "00"}:${startMinute || "00"}`;
-  const endTime = `${endHour || "00"}:${endMinute || "00"}`;
+  const get24HrTime = (h12: string, m: string, ampm: string): string => {
+    let h = parseInt(h12, 10);
+    if (isNaN(h)) h = 8;
+    const ampmUpper = ampm.toUpperCase();
+    if (ampmUpper === "PM" && h < 12) h += 12;
+    if (ampmUpper === "AM" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${String(m || "00").padStart(2, "0")}`;
+  };
+
+  const startTime = get24HrTime(startHour, startMinute, startAmpm);
+  const endTime = get24HrTime(endHour, endMinute, endAmpm);
   const [weight, setWeight] = useState<number>(5);
   const [priority, setPriority] = useState<PriorityType>("P3");
   const [remarks, setRemarks] = useState("");
@@ -359,7 +413,7 @@ export default function DashboardSupervisor({
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Failed to create crane request.");
+        throw new Error(data.detail || data.error || "Failed to create crane request.");
       }
 
       onRequestAdded(data);
@@ -738,7 +792,10 @@ export default function DashboardSupervisor({
                   <select
                     value={bay}
                     onChange={(e) => setBay(e.target.value)}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black uppercase font-mono"
+                    disabled={user.role !== "Admin"}
+                    className={`w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black uppercase font-mono ${
+                      user.role !== "Admin" ? "opacity-70 bg-zinc-50 cursor-not-allowed" : ""
+                    }`}
                   >
                     {bays.map((b) => (
                       <option key={b} value={b}>Bay {b}</option>
@@ -784,10 +841,10 @@ export default function DashboardSupervisor({
                     disabled={!!getForcedShiftForWindow(currentTime)}
                     className={`w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black ${getForcedShiftForWindow(currentTime) ? 'opacity-70 bg-zinc-100 cursor-not-allowed' : ''}`}
                   >
-                    <option value="Shift A">Shift A (06:00-14:00)</option>
-                    <option value="Shift B">Shift B (14:00-22:00)</option>
-                    <option value="Shift C">Shift C (22:00-06:00)</option>
-                    <option value="General Shift">General Shift (09:00-18:30)</option>
+                    <option value="Shift A">Shift A (06:00 AM - 02:00 PM)</option>
+                    <option value="Shift B">Shift B (02:00 PM - 10:00 PM)</option>
+                    <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
+                    <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
                   </select>
                   {getForcedShiftForWindow(currentTime) && (
                     <p className="text-[10px] text-amber-600 mt-1.5 font-mono font-bold">⚠️ Locked to {getForcedShiftForWindow(currentTime)} during handover window.</p>
@@ -882,7 +939,7 @@ export default function DashboardSupervisor({
               {/* Time Span Windows and Preferred Crane */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Estimated Start (HH:MM)</label>
+                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Estimated Start (12-Hr AM/PM)</label>
                   <div className="flex items-center justify-between bg-white border-2 border-[#141414] rounded-sm p-1 shadow-[2px_2px_0px_#141414]">
                     <input
                       type="text"
@@ -892,7 +949,7 @@ export default function DashboardSupervisor({
                       value={startHour}
                       onChange={(e) => {
                         const val = e.target.value.replace(/\D/g, "");
-                        if (val === "" || (Number(val) >= 0 && Number(val) <= 23)) {
+                        if (val === "" || (Number(val) >= 1 && Number(val) <= 12)) {
                           setStartHour(val);
                         }
                       }}
@@ -923,11 +980,20 @@ export default function DashboardSupervisor({
                       }}
                       className="w-full text-center font-black font-mono text-xs text-zinc-900 border-0 outline-none focus:outline-none focus:ring-0 bg-transparent p-1.5"
                     />
+                    <span className="font-black text-[#141414] text-sm select-none px-1" style={{ userSelect: "none" }}> </span>
+                    <select
+                      value={startAmpm}
+                      onChange={(e) => setStartAmpm(e.target.value)}
+                      className="text-center font-black font-mono text-xs text-zinc-900 border-l-2 border-[#141414] outline-none focus:outline-none focus:ring-0 bg-transparent py-1 px-1.5 cursor-pointer ml-1"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Estimated End (HH:MM)</label>
+                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Estimated End (12-Hr AM/PM)</label>
                   <div className="flex items-center justify-between bg-white border-2 border-[#141414] rounded-sm p-1 shadow-[2px_2px_0px_#141414]">
                     <input
                       type="text"
@@ -937,7 +1003,7 @@ export default function DashboardSupervisor({
                       value={endHour}
                       onChange={(e) => {
                         const val = e.target.value.replace(/\D/g, "");
-                        if (val === "" || (Number(val) >= 0 && Number(val) <= 23)) {
+                        if (val === "" || (Number(val) >= 1 && Number(val) <= 12)) {
                           setEndHour(val);
                         }
                       }}
@@ -968,6 +1034,15 @@ export default function DashboardSupervisor({
                       }}
                       className="w-full text-center font-black font-mono text-xs text-zinc-900 border-0 outline-none focus:outline-none focus:ring-0 bg-transparent p-1.5"
                     />
+                    <span className="font-black text-[#141414] text-sm select-none px-1" style={{ userSelect: "none" }}> </span>
+                    <select
+                      value={endAmpm}
+                      onChange={(e) => setEndAmpm(e.target.value)}
+                      className="text-center font-black font-mono text-xs text-zinc-900 border-l-2 border-[#141414] outline-none focus:outline-none focus:ring-0 bg-transparent py-1 px-1.5 cursor-pointer ml-1"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
                   </div>
                 </div>
 
@@ -979,7 +1054,11 @@ export default function DashboardSupervisor({
                     className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-amber-800 font-black"
                   >
                     <option value="Any">Any Available Gantry</option>
-                    {cranes.filter(c => c.id.toUpperCase().startsWith(bay.toUpperCase())).map((c) => (
+                    {cranes.filter(c => {
+                      const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                      const letter = bayLetters[bay] || "";
+                      return c.id.toUpperCase().startsWith(bay.toUpperCase()) || c.id.toUpperCase().startsWith(letter.toUpperCase());
+                    }).map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name || `Crane ${c.id}`} ({c.id}) Only
                       </option>
@@ -1057,13 +1136,20 @@ export default function DashboardSupervisor({
                 <Hammer className="w-4 h-4 text-zinc-600" />
                 Register New Crane Asset
               </h4>
+
+              {user.role === "Area User" && (
+                <div className="mb-4 p-3 bg-sky-50 border-2 border-sky-400 text-sky-950 rounded-sm font-mono text-[11px] leading-relaxed font-bold">
+                  ⚠️ <strong>Area-Restricted Asset Registration:</strong> As the supervisor for <strong>Area {user.area}</strong>, you can only register cranes operating within <strong>Runway {userBayLetter}</strong> (Columns {areaCols.min} to {areaCols.max}). The crane ID must begin with <strong>{userBayLetter}</strong>.
+                </div>
+              )}
+
               <form onSubmit={handleCreateCraneSubmit} className="space-y-4 font-mono text-xs font-bold">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Unique ID (e.g. A4)</label>
+                    <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Unique ID (e.g. {user.role === "Area User" ? `${userBayLetter}4` : "A4"})</label>
                     <input
                       type="text"
-                      placeholder="e.g. A4"
+                      placeholder={`e.g. ${user.role === "Area User" ? `${userBayLetter}4` : "A4"}`}
                       value={addCraneId}
                       onChange={(e) => setAddCraneId(e.target.value.toUpperCase())}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1073,7 +1159,7 @@ export default function DashboardSupervisor({
                     <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Display Name</label>
                     <input
                       type="text"
-                      placeholder="e.g. Crane A4"
+                      placeholder={`e.g. Crane ${user.role === "Area User" ? `${userBayLetter}4` : "A4"}`}
                       value={addCraneName}
                       onChange={(e) => setAddCraneName(e.target.value)}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1108,6 +1194,8 @@ export default function DashboardSupervisor({
                     <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Current Column Position</label>
                     <input
                       type="number"
+                      min={user.role === "Area User" ? areaCols.min : 1}
+                      max={user.role === "Area User" ? areaCols.max : 30}
                       value={addCraneCol}
                       onChange={(e) => setAddCraneCol(Number(e.target.value))}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1119,7 +1207,8 @@ export default function DashboardSupervisor({
                       type="number"
                       value={addCraneMinCol}
                       onChange={(e) => setAddCraneMinCol(Number(e.target.value))}
-                      className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
+                      className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold bg-zinc-100"
+                      readOnly={user.role === "Area User"}
                     />
                   </div>
                   <div>
@@ -1128,7 +1217,8 @@ export default function DashboardSupervisor({
                       type="number"
                       value={addCraneMaxCol}
                       onChange={(e) => setAddCraneMaxCol(Number(e.target.value))}
-                      className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
+                      className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold bg-zinc-100"
+                      readOnly={user.role === "Area User"}
                     />
                   </div>
                 </div>
@@ -1138,6 +1228,8 @@ export default function DashboardSupervisor({
                     <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Allocated Min Column</label>
                     <input
                       type="number"
+                      min={user.role === "Area User" ? areaCols.min : 1}
+                      max={user.role === "Area User" ? areaCols.max : 30}
                       value={addCraneAllocatedMin}
                       onChange={(e) => setAddCraneAllocatedMin(Number(e.target.value))}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1147,6 +1239,8 @@ export default function DashboardSupervisor({
                     <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Allocated Max Column</label>
                     <input
                       type="number"
+                      min={user.role === "Area User" ? areaCols.min : 1}
+                      max={user.role === "Area User" ? areaCols.max : 30}
                       value={addCraneAllocatedMax}
                       onChange={(e) => setAddCraneAllocatedMax(Number(e.target.value))}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1175,7 +1269,24 @@ export default function DashboardSupervisor({
 
           {/* Cranes Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {cranes.map((crane) => (
+            {cranes.filter((crane) => {
+              if (user.role === "Area User") {
+                // Show if explicitly assigned to this supervisor
+                if (user.craneNo && crane.id === user.craneNo) {
+                  return true;
+                }
+                // Or if it is allocated to their specific area columns
+                const matchesBay = crane.id.toUpperCase().startsWith(userBayLetter.toUpperCase());
+                const matchesAllocatedCols = (
+                  crane.allocatedMinColumn !== undefined && 
+                  crane.allocatedMinColumn >= areaCols.min && 
+                  crane.allocatedMaxColumn !== undefined && 
+                  crane.allocatedMaxColumn <= areaCols.max
+                );
+                return matchesBay && matchesAllocatedCols;
+              }
+              return true; // Admin can see all
+            }).map((crane) => (
               <div key={crane.id} className="bg-white rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] p-5 space-y-4 relative overflow-hidden">
                 <div className="flex justify-between items-center border-b-2 border-zinc-200 pb-2">
                   <h3 className="font-black text-[#141414] text-xs uppercase tracking-tight font-mono">
@@ -1229,6 +1340,8 @@ export default function DashboardSupervisor({
                         <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Current Col</label>
                         <input
                           type="number"
+                          min={user.role === "Area User" ? areaCols.min : 1}
+                          max={user.role === "Area User" ? areaCols.max : 30}
                           value={craneCol}
                           onChange={(e) => setCraneCol(Number(e.target.value))}
                           className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1244,6 +1357,7 @@ export default function DashboardSupervisor({
                           <option value="Available">Available</option>
                           <option value="Busy">Busy</option>
                           <option value="Maintenance">Maintenance</option>
+                          <option value="Breakdown">Breakdown</option>
                         </select>
                       </div>
                     </div>
@@ -1255,7 +1369,8 @@ export default function DashboardSupervisor({
                           type="number"
                           value={craneMinCol}
                           onChange={(e) => setCraneMinCol(Number(e.target.value))}
-                          className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
+                          className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold bg-zinc-100"
+                          readOnly={user.role === "Area User"}
                         />
                       </div>
                       <div>
@@ -1264,7 +1379,8 @@ export default function DashboardSupervisor({
                           type="number"
                           value={craneMaxCol}
                           onChange={(e) => setCraneMaxCol(Number(e.target.value))}
-                          className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
+                          className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold bg-zinc-100"
+                          readOnly={user.role === "Area User"}
                         />
                       </div>
                     </div>
@@ -1274,6 +1390,8 @@ export default function DashboardSupervisor({
                         <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Allocated Min</label>
                         <input
                           type="number"
+                          min={user.role === "Area User" ? areaCols.min : 1}
+                          max={user.role === "Area User" ? areaCols.max : 30}
                           value={craneAllocMin !== undefined ? craneAllocMin : ""}
                           onChange={(e) => setCraneAllocMin(e.target.value !== "" ? Number(e.target.value) : undefined)}
                           className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
@@ -1283,6 +1401,8 @@ export default function DashboardSupervisor({
                         <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Allocated Max</label>
                         <input
                           type="number"
+                          min={user.role === "Area User" ? areaCols.min : 1}
+                          max={user.role === "Area User" ? areaCols.max : 30}
                           value={craneAllocMax !== undefined ? craneAllocMax : ""}
                           onChange={(e) => setCraneAllocMax(e.target.value !== "" ? Number(e.target.value) : undefined)}
                           className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"

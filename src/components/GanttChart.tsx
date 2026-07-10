@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Clock, HelpCircle, Activity, ArrowRight, ShieldCheck } from "lucide-react";
 import { Schedule, PriorityType, CraneRequest, Crane } from "../types";
-import { isScheduleInShiftBoundary } from "../utils/shiftUtils";
+import { isScheduleInShiftBoundary, getCurrentShift, formatTimeTo12Hr } from "../utils/shiftUtils";
 
 interface GanttChartProps {
   cranes: Crane[];
@@ -138,12 +138,12 @@ export default function GanttChart({
     <div id="gantt_chart_panel" className="bg-white rounded-sm border-4 border-[#141414] p-6 shadow-[6px_6px_0px_#141414] mb-8 relative overflow-hidden industrial-grid">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b-2 border-zinc-200 pb-4 mb-6">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-tighter flex items-center gap-2">
-            <span className="w-3 h-3 bg-[#141414]"></span>
-            Interactive Occupancy Gantt Chart
+          <h2 className="text-sm font-black uppercase tracking-tighter flex items-center gap-2 text-amber-600">
+            <span className="w-3 h-3 bg-amber-600 border border-[#141414]"></span>
+            Interactive Occupancy Gantt Chart (Current Shift &amp; Date Only)
           </h2>
-          <p className="text-[11px] text-zinc-500 mt-0.5 font-mono font-bold">
-            24-Hour Operations Grid (Shift A, B, C). Select block to audit spatial safety parameters.
+          <p className="text-[11px] text-zinc-500 mt-0.5 font-mono font-bold uppercase">
+            Active Shift: <span className="text-amber-600 font-black">{getCurrentShift(new Date())}</span> • Date: <span className="text-amber-600 font-black">{new Date().toISOString().split("T")[0]}</span>
           </p>
         </div>
         
@@ -258,7 +258,7 @@ export default function GanttChart({
                                   {job.requestId} • {job.department}
                                 </span>
                                 <span className="text-[8px] font-mono font-bold opacity-90 block truncate mt-0.5">
-                                  Cols {job.startColumn !== undefined && job.endColumn !== undefined ? `${job.startColumn}-${job.endColumn}` : job.column} | {job.startTime}-{job.endTime}
+                                  Cols {job.startColumn !== undefined && job.endColumn !== undefined ? `${job.startColumn}-${job.endColumn}` : job.column} | {formatTimeTo12Hr(job.startTime)}-{formatTimeTo12Hr(job.endTime)}
                                 </span>
                               </button>
 
@@ -334,9 +334,9 @@ export default function GanttChart({
                 <div className="bg-white p-3 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] rounded-sm">
                   <div className="text-zinc-500 uppercase text-[9px] font-black">Planned Time Span</div>
                   <div className="text-[#141414] font-black mt-1.5 flex items-center gap-1 text-[11px]">
-                    <span>{selectedJob.startTime}</span>
+                    <span>{formatTimeTo12Hr(selectedJob.startTime)}</span>
                     <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>{selectedJob.endTime}</span>
+                    <span>{formatTimeTo12Hr(selectedJob.endTime)}</span>
                   </div>
                   <div className="text-[9px] text-zinc-500 mt-1 font-bold">Duration: {getPercentageWidth(selectedJob.startTime, selectedJob.endTime) * 14.4} minutes</div>
                 </div>

@@ -8,6 +8,7 @@ export interface User {
   phone?: string;
   email?: string;
   craneNo?: string;
+  planningPoints?: number; // 0-100 planning/managerial skill points
 }
 
 export type ShiftType = "Shift A" | "Shift B" | "Shift C" | "General Shift";
@@ -16,7 +17,7 @@ export type PriorityType = "P1" | "P2" | "P3" | "P4"; // P1 Critical, P2 Urgent,
 
 export type RequestStatus = "Draft" | "Submitted" | "Scheduled" | "Rejected" | "Deferred" | "Rescheduled" | "Completed";
 
-export type CraneStatus = "Available" | "Maintenance" | "Busy";
+export type CraneStatus = "Available" | "Maintenance" | "Busy" | "Breakdown";
 
 export interface Crane {
   id: string; // "A1", "A2", "A3"
@@ -106,4 +107,5 @@ export interface SystemSettings {
   maxCranes: number;
   maintenanceWindowOpen: boolean;
   systemLocked: boolean;
+  lastPointsResetMonth?: string; // "YYYY-MM"
 }

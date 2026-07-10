@@ -28,7 +28,7 @@ export const getCranes = (req: Request, res: Response): void => {
   let changed = false;
 
   db.cranes.forEach((crane) => {
-    if (crane.status === "Maintenance") return;
+    if (crane.status === "Maintenance" || crane.status === "Breakdown") return;
 
     const hasActiveSchedule = db.schedules.some((s) => {
       if (s.assignedCrane !== crane.id && s.secondaryCrane !== crane.id) return false;

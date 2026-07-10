@@ -109,7 +109,7 @@ export default function DashboardAdmin({
   const [craneCap, setCraneCap] = useState<number>(10);
   const [craneAuxCap, setCraneAuxCap] = useState<string>("");
   const [craneCol, setCraneCol] = useState<number>(5);
-  const [craneStatus, setCraneStatus] = useState<"Available" | "Maintenance" | "Busy">("Available");
+  const [craneStatus, setCraneStatus] = useState<"Available" | "Maintenance" | "Busy" | "Breakdown">("Available");
   const [craneNotes, setCraneNotes] = useState("");
   const [craneMinCol, setCraneMinCol] = useState<number>(1);
   const [craneMaxCol, setCraneMaxCol] = useState<number>(30);
@@ -885,6 +885,7 @@ export default function DashboardAdmin({
                         <option value="Available">Available</option>
                         <option value="Busy">Busy</option>
                         <option value="Maintenance">Maintenance</option>
+                        <option value="Breakdown">Breakdown</option>
                       </select>
                     </div>
 

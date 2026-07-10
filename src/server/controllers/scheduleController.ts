@@ -22,6 +22,20 @@ function formatMinutesToTime(m: number): string {
   return `${String(h).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
+function formatTimeTo12Hr(timeStr: string): string {
+  if (!timeStr) return "";
+  const parts = timeStr.split(":");
+  if (parts.length < 2) return timeStr;
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mFormatted = String(m).padStart(2, "0");
+  return `${h}:${mFormatted} ${ampm}`;
+}
+
 function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: ShiftType): { isValid: boolean; message?: string } {
   const sMins = parseTimeToMinutes(startTimeStr);
   let eMins = parseTimeToMinutes(endTimeStr);
@@ -30,6 +44,11 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
   if (!window) return { isValid: true };
   const [wStart, wEnd] = window;
   
+  const start12 = formatTimeTo12Hr(startTimeStr);
+  const end12 = formatTimeTo12Hr(endTimeStr);
+  const wStart12 = formatTimeTo12Hr(formatMinutesToTime(wStart));
+  const wEnd12 = formatTimeTo12Hr(formatMinutesToTime(wEnd));
+
   if (shift === "Shift C") {
     const normStart = sMins < 12 * 60 ? sMins + 24 * 60 : sMins;
     const normEnd = eMins < 12 * 60 ? eMins + 24 * 60 : eMins;
@@ -37,7 +56,7 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
     if (normStart < wStart || normEnd > wEnd) {
       return {
         isValid: false,
-        message: `Requested window ${startTimeStr}-${endTimeStr} falls outside Shift C window (22:00-06:00 next day).`,
+        message: `The selected time (${start12} to ${end12}) is not in the Shift C schedule list. Shift C is strictly from ${wStart12} to ${wEnd12} (next day).`,
       };
     }
   } else {
@@ -47,7 +66,7 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
     if (sMins < wStart || eMins > wEnd) {
       return {
         isValid: false,
-        message: `Requested window ${startTimeStr}-${endTimeStr} falls outside Shift ${shift} window (${formatMinutesToTime(wStart)}-${formatMinutesToTime(wEnd)}).`,
+        message: `The selected time (${start12} to ${end12}) is not in the ${shift} schedule list. ${shift} is strictly from ${wStart12} to ${wEnd12}.`,
       };
     }
   }
@@ -94,10 +113,12 @@ export const generateSchedule = (req: Request, res: Response): void => {
     // 2. Validate shift boundaries & check crane availability warnings
     const warnings: string[] = [];
     
-    // Add warning for any crane currently in Maintenance
+    // Add warning for any crane currently in Maintenance or Breakdown
     db.cranes.forEach((c) => {
       if (c.status === "Maintenance") {
         warnings.push(`Crane ${c.id} is currently under maintenance. (CraneUnavailable)`);
+      } else if (c.status === "Breakdown") {
+        warnings.push(`Crane ${c.id} is currently in BREAKDOWN. (CraneUnavailable)`);
       }
     });
 
@@ -168,7 +189,7 @@ export const generateSchedule = (req: Request, res: Response): void => {
     });
 
     const updatedCranes = schedulerResult.updatedCranes.map((crane) => {
-      if (!activeCranesThisShift.has(crane.id) && crane.status !== "Maintenance") {
+      if (!activeCranesThisShift.has(crane.id) && crane.status !== "Maintenance" && crane.status !== "Breakdown") {
         return { ...crane, status: "Available" as const };
       }
       return crane;
@@ -223,7 +244,7 @@ export const clearSchedule = (req: Request, res: Response): void => {
 
     db.schedules = [];
     db.cranes.forEach((c) => {
-      if (c.status !== "Maintenance") {
+      if (c.status !== "Maintenance" && c.status !== "Breakdown") {
         c.status = "Available";
       }
     });
@@ -612,6 +633,215 @@ export const resetDatabase = async (req: Request, res: Response): Promise<void> 
       error: "Failed to reset database",
       detail: err.message || String(err),
       code: "DATABASE_RESET_FAILED"
+    });
+  }
+};
+
+export const cancelSchedule = (req: Request, res: Response): void => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+
+    const db = readDB();
+    const schedIndex = db.schedules.findIndex((s) => s.id === id);
+    if (schedIndex === -1) {
+      res.status(404).json({ error: "Schedule not found" });
+      return;
+    }
+
+    const sched = db.schedules[schedIndex];
+    
+    // Update corresponding request status to "Draft"
+    const reqIndex = db.requests.findIndex((r) => r.id === sched.requestId);
+    if (reqIndex !== -1) {
+      db.requests[reqIndex].status = "Draft";
+    }
+
+    // Remove the schedule from the active list
+    db.schedules.splice(schedIndex, 1);
+
+    writeDB(db);
+
+    logActivity(
+      user.employeeId,
+      user.name,
+      "Schedule Cancelled/Rescheduled",
+      `Cancelled schedule ${id} for request ${sched.requestId}. Job reverted to draft for rescheduling.`
+    );
+
+    res.json({ success: true, message: "Job cancelled and reverted to Draft successfully." });
+  } catch (err: any) {
+    res.status(500).json({
+      error: "Failed to cancel/reschedule job",
+      detail: err.message || String(err),
+      code: "CANCEL_FAILED"
+    });
+  }
+};
+
+export const instantSchedule = (req: Request, res: Response): void => {
+  try {
+    const user = (req as any).user;
+    const db = readDB();
+
+    // First check and initialize / reset points
+    const now = new Date();
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    if (!db.settings.lastPointsResetMonth || db.settings.lastPointsResetMonth !== currentMonthStr) {
+      db.users.forEach((u) => {
+        u.planningPoints = 100;
+      });
+      db.settings.lastPointsResetMonth = currentMonthStr;
+    }
+
+    // Find current logged user in DB
+    const dbUser = db.users.find((u) => u.employeeId.toUpperCase() === user.employeeId.toUpperCase());
+    if (!dbUser) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    if (dbUser.planningPoints === undefined) {
+      dbUser.planningPoints = 100;
+    }
+
+    if (dbUser.planningPoints < 5) {
+      res.status(400).json({
+        error: "Insufficient Planning Points",
+        detail: `Instant scheduling requires at least 5 planning/managerial skill points. Your current balance is ${dbUser.planningPoints} points.`,
+        code: "INSUFFICIENT_POINTS"
+      });
+      return;
+    }
+
+    const {
+      shift,
+      area,
+      bay,
+      department,
+      column,
+      startColumn,
+      endColumn,
+      startTime,
+      endTime,
+      weight,
+      priority,
+      remarks,
+      assignedCrane,
+      isTandemLift,
+      secondaryCrane
+    } = req.body;
+
+    if (!startTime || !endTime || !assignedCrane) {
+      res.status(400).json({ error: "Start time, end time, and assigned crane are required for instant scheduling." });
+      return;
+    }
+
+    // Verify if there is a conflict on the selected crane
+    const sMins = parseTimeToMinutes(startTime);
+    const eMins = parseTimeToMinutes(endTime);
+
+    // Check if crane is in Maintenance or Breakdown
+    const craneObj = db.cranes.find((c) => c.id === assignedCrane);
+    if (craneObj && (craneObj.status === "Maintenance" || craneObj.status === "Breakdown")) {
+      res.status(400).json({
+        error: "Crane Unavailable",
+        detail: `Crane ${assignedCrane} is currently in status '${craneObj.status}' and cannot accept jobs.`,
+        code: "CRANE_UNAVAILABLE"
+      });
+      return;
+    }
+
+    // Simple overlap check
+    const hasOverlap = db.schedules.some((s) => {
+      if (s.assignedCrane !== assignedCrane && s.secondaryCrane !== assignedCrane) return false;
+      const existingS = parseTimeToMinutes(s.startTime);
+      const existingE = parseTimeToMinutes(s.endTime);
+      // Check overlapping intervals
+      return (sMins < existingE && eMins > existingS);
+    });
+
+    if (hasOverlap) {
+      res.status(400).json({
+        error: "Scheduling Conflict",
+        detail: `Crane ${assignedCrane} has an overlapping scheduled job during this time window. Please select another time or crane.`,
+        code: "CRANE_CONFLICT"
+      });
+      return;
+    }
+
+    // Deduct 5 points!
+    dbUser.planningPoints = Math.max(0, dbUser.planningPoints - 5);
+
+    // Create CraneRequest
+    const reqId = `REQ-INST-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+    const newRequest = {
+      id: reqId,
+      shift: shift || "General Shift",
+      area: Number(area) || 1,
+      bay: bay || "A",
+      department: department || "General Operation",
+      column: Number(column) || 15,
+      startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
+      endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
+      estimatedStartTime: startTime,
+      estimatedEndTime: endTime,
+      estimatedWeight: Number(weight) || 5,
+      priority: priority || "P3",
+      remarks: remarks ? `${remarks} (Instantly Scheduled)` : "Instantly Scheduled",
+      mandatoryCrane: assignedCrane,
+      status: "Scheduled" as const,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Create Schedule
+    const schedId = `SCH-INST-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+    const newSchedule = {
+      id: schedId,
+      requestId: reqId,
+      area: Number(area) || 1,
+      bay: bay || "A",
+      assignedCrane,
+      column: Number(column) || 15,
+      startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
+      endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
+      startTime,
+      endTime,
+      weight: Number(weight) || 5,
+      priority: priority || "P3",
+      status: "Approved",
+      travelTimeMinutes: 2,
+      bufferTimeMinutes: 3,
+      remarks: remarks || "Instant Scheduling",
+      department: department || "General Operation",
+      isTandemLift: !!isTandemLift,
+      secondaryCrane: secondaryCrane || undefined
+    };
+
+    db.requests.push(newRequest);
+    db.schedules.push(newSchedule);
+
+    writeDB(db);
+
+    logActivity(
+      dbUser.employeeId,
+      dbUser.name,
+      "Instant Schedule Created",
+      `User instantly scheduled request ${reqId} on crane ${assignedCrane} for time ${startTime}-${endTime}. Deducted 5 planning points (Remaining: ${dbUser.planningPoints}).`
+    );
+
+    res.json({
+      success: true,
+      message: `Job instantly scheduled! 5 points deducted. Remaining points: ${dbUser.planningPoints}`,
+      request: newRequest,
+      schedule: newSchedule,
+      planningPoints: dbUser.planningPoints
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      error: "Instant scheduling failed",
+      detail: err.message || String(err),
+      code: "INSTANT_SCHEDULING_FAILED"
     });
   }
 };

@@ -27,6 +27,20 @@ export function matchesRequestId(storedId: string, queryId: string): boolean {
   return sClean === qClean;
 }
 
+function formatTimeTo12Hr(timeStr: string): string {
+  if (!timeStr) return "";
+  const parts = timeStr.split(":");
+  if (parts.length < 2) return timeStr;
+  let h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return timeStr;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mFormatted = String(m).padStart(2, "0");
+  return `${h}:${mFormatted} ${ampm}`;
+}
+
 function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: ShiftType): { isValid: boolean; message?: string } {
   const sMins = parseTimeToMinutes(startTimeStr);
   let eMins = parseTimeToMinutes(endTimeStr);
@@ -35,6 +49,11 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
   if (!window) return { isValid: true };
   const [wStart, wEnd] = window;
   
+  const start12 = formatTimeTo12Hr(startTimeStr);
+  const end12 = formatTimeTo12Hr(endTimeStr);
+  const wStart12 = formatTimeTo12Hr(formatMinutesToTime(wStart));
+  const wEnd12 = formatTimeTo12Hr(formatMinutesToTime(wEnd));
+
   if (shift === "Shift C") {
     const normStart = sMins < 12 * 60 ? sMins + 24 * 60 : sMins;
     const normEnd = eMins < 12 * 60 ? eMins + 24 * 60 : eMins;
@@ -42,7 +61,7 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
     if (normStart < wStart || normEnd > wEnd) {
       return {
         isValid: false,
-        message: `Requested window ${startTimeStr}-${endTimeStr} falls outside Shift C window (22:00-06:00 next day).`,
+        message: `The selected time (${start12} to ${end12}) is not in the Shift C schedule list. Shift C is strictly from ${wStart12} to ${wEnd12} (next day).`,
       };
     }
   } else {
@@ -52,7 +71,7 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
     if (sMins < wStart || eMins > wEnd) {
       return {
         isValid: false,
-        message: `Requested window ${startTimeStr}-${endTimeStr} falls outside Shift ${shift} window (${formatMinutesToTime(wStart)}-${formatMinutesToTime(wEnd)}).`,
+        message: `The selected time (${start12} to ${end12}) is not in the ${shift} schedule list. ${shift} is strictly from ${wStart12} to ${wEnd12}.`,
       };
     }
   }

@@ -36,19 +36,49 @@ export default function App() {
   const [selectedBay, setSelectedBay] = useState<string>("1");
   const baysList = ["1", "2", "3", "4", "5", "6", "7"];
 
+  const getBayLetter = (b: string): string => {
+    const bayLetters: Record<string, string> = {
+      "1": "A",
+      "2": "B",
+      "3": "C",
+      "4": "D",
+      "5": "E",
+      "6": "F",
+      "7": "G"
+    };
+    return bayLetters[b] || "";
+  };
+
   // Filter lists by selected bay
-  const filteredCranes = cranes.filter((c) => c.id.startsWith(selectedBay + "-") || c.id.startsWith(selectedBay));
+  const selectedBayLetter = getBayLetter(selectedBay);
+  const filteredCranes = cranes.filter((c) => {
+    return (
+      c.id.startsWith(selectedBayLetter) ||
+      c.id.startsWith(selectedBay + "-") ||
+      c.id.startsWith(selectedBay)
+    );
+  });
   const filteredSchedules = schedules.filter((s) => {
-    const craneMatch = s.assignedCrane.startsWith(selectedBay + "-") || s.assignedCrane.startsWith(selectedBay);
+    const craneMatch =
+      s.assignedCrane.startsWith(selectedBayLetter) ||
+      s.assignedCrane.startsWith(selectedBay + "-") ||
+      s.assignedCrane.startsWith(selectedBay);
     const bayMatch = s.bay ? s.bay.toUpperCase() === selectedBay.toUpperCase() : false;
     return craneMatch || bayMatch;
   });
   const filteredRequests = requests.filter((r) => {
     if (r.bay) {
-      return r.bay.toUpperCase() === selectedBay.toUpperCase();
+      return (
+        r.bay.toUpperCase() === selectedBay.toUpperCase() ||
+        r.bay.toUpperCase() === selectedBayLetter.toUpperCase()
+      );
     }
     if (r.mandatoryCrane && r.mandatoryCrane !== "Any") {
-      return r.mandatoryCrane.startsWith(selectedBay + "-") || r.mandatoryCrane.startsWith(selectedBay);
+      return (
+        r.mandatoryCrane.startsWith(selectedBayLetter) ||
+        r.mandatoryCrane.startsWith(selectedBay + "-") ||
+        r.mandatoryCrane.startsWith(selectedBay)
+      );
     }
     return selectedBay === "1";
   });
@@ -91,7 +121,7 @@ export default function App() {
   // Safety area/bays lockout enforcement for Area Users
   useEffect(() => {
     if (user && user.role === "Area User") {
-      const uBay = user.craneNo ? user.craneNo.split("-")[0] : String(getBayForArea(user.area || 1));
+      const uBay = String(getBayForArea(user.area || 1));
       if (selectedBay !== uBay) {
         setSelectedBay(uBay);
       }
@@ -120,7 +150,7 @@ export default function App() {
         
         // Auto-restrict bay and area if they are an Area User
         if (data.user.role === "Area User") {
-          const uBay = data.user.craneNo ? data.user.craneNo.split("-")[0] : String(getBayForArea(data.user.area || 1));
+          const uBay = String(getBayForArea(data.user.area || 1));
           setSelectedBay(uBay);
           setSelectedAreaFilter(String(data.user.area));
         }
@@ -141,12 +171,13 @@ export default function App() {
       const headers = { Authorization: `Bearer ${token}` };
 
       // Parallelize fetches for extreme speed
-      const [resCranes, resReqs, resScheds, resSettings, resReports] = await Promise.all([
+      const [resCranes, resReqs, resScheds, resSettings, resReports, resMe] = await Promise.all([
         fetch("/api/cranes", { headers }),
         fetch("/api/requests", { headers }),
         fetch("/api/schedules", { headers }),
         fetch("/api/settings", { headers }),
         fetch("/api/reports", { headers }),
+        fetch("/api/auth/me", { headers }),
       ]);
 
       const dataCranes = await resCranes.json();
@@ -154,12 +185,16 @@ export default function App() {
       const dataScheds = await resScheds.json();
       const dataSettings = await resSettings.json();
       const dataReports = await resReports.json();
+      const dataMe = await resMe.json();
 
       setCranes(dataCranes);
       setRequests(dataReqs);
       setSchedules(dataScheds);
       setSettings(dataSettings);
       setShiftReports(dataReports.shiftReports || []);
+      if (dataMe.user) {
+        setUser(dataMe.user);
+      }
 
       // If user is Admin, also fetch system audit logs and users roster
       if (profile.role === "Admin") {
@@ -186,7 +221,7 @@ export default function App() {
     
     // Auto-restrict bay and area if they are an Area User
     if (loggedUser.role === "Area User") {
-      const uBay = loggedUser.craneNo ? loggedUser.craneNo.split("-")[0] : String(getBayForArea(loggedUser.area || 1));
+      const uBay = String(getBayForArea(loggedUser.area || 1));
       setSelectedBay(uBay);
       setSelectedAreaFilter(String(loggedUser.area));
     }
@@ -334,6 +369,49 @@ export default function App() {
       }
     } catch (err) {
       setGlobalAlert({ message: "Network reset error.", type: "error" });
+    }
+  };
+
+  const handleCancelSchedule = async (scheduleId: string) => {
+    try {
+      const res = await fetch(`/api/schedules/${scheduleId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGlobalAlert({ message: "Job cancelled and reverted to Draft successfully.", type: "success" });
+        if (user) reloadDatabase(user);
+      } else {
+        setGlobalAlert({ message: data.detail || data.error || "Failed to cancel/reschedule job.", type: "error" });
+      }
+    } catch (err) {
+      setGlobalAlert({ message: "Network error during cancellation.", type: "error" });
+    }
+  };
+
+  const handleInstantSchedule = async (formData: any) => {
+    try {
+      const res = await fetch("/api/schedules/instant", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(formData),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGlobalAlert({ message: `Job instantly scheduled! 5 points deducted. (Balance: ${data.planningPoints} pts)`, type: "success" });
+        if (user) reloadDatabase(user);
+        return { success: true, data };
+      } else {
+        setGlobalAlert({ message: data.detail || data.error || "Failed to instantly schedule job.", type: "error" });
+        return { success: false, error: data.detail || data.error };
+      }
+    } catch (err) {
+      setGlobalAlert({ message: "Network error during instant scheduling.", type: "error" });
+      return { success: false, error: "Network error" };
     }
   };
 
@@ -554,6 +632,10 @@ export default function App() {
                 <span className="text-amber-500 font-extrabold uppercase">
                   {user.role === "Admin" ? "Command Admin" : `Area ${user.area} Lead`}
                 </span>
+                <span className="text-zinc-600"> | </span>
+                <span className="text-emerald-400 font-extrabold">
+                  {user.planningPoints !== undefined ? user.planningPoints : 100}/100 PLAN POINTS
+                </span>
               </div>
             </div>
 
@@ -622,6 +704,10 @@ export default function App() {
                 setSelectedCraneFilter={setSelectedCraneFilter}
                 selectedAreaFilter={selectedAreaFilter}
                 setSelectedAreaFilter={setSelectedAreaFilter}
+                selectedBay={selectedBay}
+                user={user}
+                onCancelSchedule={handleCancelSchedule}
+                onInstantSchedule={handleInstantSchedule}
               />
             </div>
           )}
@@ -645,7 +731,11 @@ export default function App() {
                   <div className="flex flex-wrap gap-2">
                     {baysList.map((b) => {
                       const isActive = selectedBay === b;
-                      const bayCraneCount = cranes.filter((c) => c.id.toUpperCase().startsWith(b)).length;
+                      const letter = getBayLetter(b);
+                      const bayCraneCount = cranes.filter((c) => 
+                        c.id.toUpperCase().startsWith(b) || 
+                        c.id.toUpperCase().startsWith(letter.toUpperCase())
+                      ).length;
                       return (
                         <button
                           key={b}

@@ -81,7 +81,7 @@ export const createUser = (req: Request, res: Response): void => {
     return;
   }
 
-  const salt = bcrypt.genSaltSync(10);
+  const salt = bcrypt.genSaltSync(4);
   const passwordHash = bcrypt.hashSync(password, salt);
 
   const newUser = {
@@ -153,7 +153,7 @@ export const updateUser = (req: Request, res: Response): void => {
 
   let passwordHash = existingUser.passwordHash;
   if (password && password.trim() !== "") {
-    const salt = bcrypt.genSaltSync(10);
+    const salt = bcrypt.genSaltSync(4);
     passwordHash = bcrypt.hashSync(password, salt);
   }
 
@@ -381,7 +381,7 @@ export const resetPassword = (req: Request, res: Response): void => {
   }
 
   const user = db.users[userIndex];
-  const salt = bcrypt.genSaltSync(10);
+  const salt = bcrypt.genSaltSync(4);
   const passwordHash = bcrypt.hashSync(newPassword.trim(), salt);
 
   db.users[userIndex] = {

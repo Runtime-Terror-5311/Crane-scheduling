@@ -50,7 +50,7 @@ import {
 export type PriorityType = "P1" | "P2" | "P3" | "P4";
 export type CraneId = "A1" | "A2" | "A3";
 export type ShiftType = "A" | "B" | "C" | "General";
-export type CraneStatus = "Available" | "Busy" | "Maintenance";
+export type CraneStatus = "Available" | "Busy" | "Maintenance" | "Breakdown";
 export type ScheduleStatus = "Approved" | "Deferred" | "Rejected" | "Rescheduled";
 export type MandatoryCrane = CraneId | "Any";
 
@@ -236,7 +236,7 @@ function findEarliestSlot(
   craneSchedules: Record<CraneId, Schedule[]>,
   bufferMin: number
 ): { start: number; end: number; travel: number } | null {
-  if (crane.status === "Maintenance") return null;
+  if (crane.status === "Maintenance" || crane.status === "Breakdown") return null;
   if (reqWeight > crane.capacity) return null;
 
   const reqMid = midCol(reqStartCol, reqEndCol);
@@ -406,6 +406,7 @@ function scheduleRequestsInternal(
     const capableExists = candidateOrder.some(
       (cid) =>
         workingCranes[cid]?.status !== "Maintenance" &&
+        workingCranes[cid]?.status !== "Breakdown" &&
         (workingCranes[cid]?.capacity ?? 0) >= reqWeight
     );
 
@@ -579,6 +580,7 @@ function scheduleTandemLift(
   const capable = candidateOrder.filter(
     (cid) =>
       workingCranes[cid]?.status !== "Maintenance" &&
+      workingCranes[cid]?.status !== "Breakdown" &&
       (workingCranes[cid]?.capacity ?? 0) >= reqWeight / 2 // each crane carries half
   );
 
@@ -813,7 +815,9 @@ export function scheduleRequests(
     // Filter requests belonging to this bay
     const bayRequests = requests.filter((r) => {
       const rBay = r.bay || (r.mandatoryCrane && r.mandatoryCrane !== "Any" ? r.mandatoryCrane.toUpperCase().charAt(0) : "A");
-      return rBay.toUpperCase() === bay;
+      const rBayLetterMap: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+      const normalizedRBay = rBayLetterMap[rBay.toUpperCase()] || rBay.toUpperCase();
+      return normalizedRBay === bay;
     });
     
     if (bayRequests.length === 0) {

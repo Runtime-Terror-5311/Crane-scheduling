@@ -17,10 +17,12 @@ import {
   Wrench,
   Construction,
   Download,
-  History
+  History,
+  Zap,
+  Hammer
 } from "lucide-react";
 import { Schedule, CraneRequest, PriorityType, ShiftType, Crane } from "../types";
-import { isScheduleInShiftBoundary } from "../utils/shiftUtils";
+import { isScheduleInShiftBoundary, getAreasForBay, getColumnsForArea, formatTimeTo12Hr, getBayForArea } from "../utils/shiftUtils";
 import { generateDateWisePDF, generateCraneWorkingHoursPDF } from "../utils/pdfGenerator";
 
 interface OperationsListProps {
@@ -33,6 +35,10 @@ interface OperationsListProps {
   setSelectedCraneFilter: (val: string) => void;
   selectedAreaFilter: string;
   setSelectedAreaFilter: (val: string) => void;
+  selectedBay: string;
+  user?: any;
+  onCancelSchedule?: (id: string) => void;
+  onInstantSchedule?: (formData: any) => Promise<{ success: boolean; data?: any; error?: string }>;
 }
 
 
@@ -45,7 +51,11 @@ export default function OperationsList({
   selectedCraneFilter,
   setSelectedCraneFilter,
   selectedAreaFilter,
-  setSelectedAreaFilter
+  setSelectedAreaFilter,
+  selectedBay,
+  user,
+  onCancelSchedule,
+  onInstantSchedule
 }: OperationsListProps) {
   const getCraneDisplayDetails = (cid: string) => {
     if (cid === "Any") {
@@ -99,6 +109,41 @@ export default function OperationsList({
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPriority, setSelectedPriority] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"scheduled" | "conflicts" | "history">("scheduled");
+  const [isInstantModalOpen, setIsInstantModalOpen] = useState(false);
+
+  // Instant Scheduling form state
+  const [instantShift, setInstantShift] = useState<string>("Shift A");
+  const [instantArea, setInstantArea] = useState<number>(1);
+  const [instantBay, setInstantBay] = useState<string>("A");
+  const [instantDept, setInstantDept] = useState<string>("Assembly Operations");
+  const [instantCol, setInstantCol] = useState<number>(15);
+  const [instantStartCol, setInstantStartCol] = useState<number>(10);
+  const [instantEndCol, setInstantEndCol] = useState<number>(20);
+  const [startHour, setStartHour] = useState("08");
+  const [startMinute, setStartMinute] = useState("00");
+  const [startAmpm, setStartAmpm] = useState("AM");
+
+  const [endHour, setEndHour] = useState("10");
+  const [endMinute, setEndMinute] = useState("00");
+  const [endAmpm, setEndAmpm] = useState("AM");
+
+  const convert12HrTo24Hr = (time12: string): string => {
+    const match = time12.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+    if (!match) return time12;
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const ampm = match[3].toUpperCase();
+    if (ampm === "PM" && h < 12) h += 12;
+    if (ampm === "AM" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
+  const [instantWeight, setInstantWeight] = useState<number>(5);
+  const [instantPriority, setInstantPriority] = useState<PriorityType>("P3");
+  const [instantCrane, setInstantCrane] = useState<string>("");
+  const [instantRemarks, setInstantRemarks] = useState<string>("");
+  const [instantError, setInstantError] = useState<string>("");
+  const [isInstantSubmitting, setIsInstantSubmitting] = useState(false);
 
   const [historyStartDate, setHistoryStartDate] = useState<string>(() => {
     const d = new Date();
@@ -405,6 +450,69 @@ export default function OperationsList({
     return groups;
   }, [filteredConflicts, cranes]);
 
+  const handleInstantSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInstantError("");
+    setIsInstantSubmitting(true);
+
+    const sTime12 = `${startHour.padStart(2, "0")}:${startMinute} ${startAmpm}`;
+    const eTime12 = `${endHour.padStart(2, "0")}:${endMinute} ${endAmpm}`;
+
+    // Convert to 24hr format
+    const sTime24 = convert12HrTo24Hr(sTime12);
+    const eTime24 = convert12HrTo24Hr(eTime12);
+
+    // Validate shift boundary
+    const inBoundary = isScheduleInShiftBoundary(sTime24, eTime24, instantShift as ShiftType);
+    if (!inBoundary) {
+      let boundaryDesc = "";
+      if (instantShift === "Shift A") boundaryDesc = "6:00 AM to 2:00 PM";
+      else if (instantShift === "Shift B") boundaryDesc = "2:00 PM to 10:00 PM";
+      else if (instantShift === "Shift C") boundaryDesc = "10:00 PM to 6:00 AM (next day)";
+      else if (instantShift === "General Shift") boundaryDesc = "9:00 AM to 6:30 PM";
+
+      setInstantError(
+        `Shift Boundary Violation: You have selected ${instantShift} (${boundaryDesc}), but your scheduled time window (${sTime12} to ${eTime12}) is outside this boundary. Please adjust your start/end times to fit within the active list of shift hours.`
+      );
+      setIsInstantSubmitting(false);
+      return;
+    }
+
+    if (!instantCrane) {
+      setInstantError("Please select an Assigned Crane.");
+      setIsInstantSubmitting(false);
+      return;
+    }
+
+    const payload = {
+      shift: instantShift,
+      area: Number(instantArea),
+      bay: getBayForArea(Number(instantArea)),
+      department: instantDept,
+      column: Number(instantCol),
+      startColumn: Number(instantStartCol),
+      endColumn: Number(instantEndCol),
+      startTime: sTime24,
+      endTime: eTime24,
+      weight: Number(instantWeight),
+      priority: instantPriority,
+      remarks: instantRemarks,
+      assignedCrane: instantCrane,
+      isTandemLift: false,
+    };
+
+    const res = await onInstantSchedule?.(payload);
+    setIsInstantSubmitting(false);
+    if (res?.success) {
+      setIsInstantModalOpen(false);
+      // Reset form fields
+      setInstantRemarks("");
+      setInstantError("");
+    } else {
+      setInstantError(res?.error || "An error occurred while saving the instant schedule.");
+    }
+  };
+
   return (
     <div id="shift_master_operations_list" className="bg-white rounded-sm border-4 border-[#141414] p-6 shadow-[6px_6px_0px_#141414] font-sans relative overflow-hidden mb-8">
       
@@ -469,6 +577,15 @@ export default function OperationsList({
             <Download className="w-4 h-4" />
             Download Master PDF
           </button>
+
+          <button
+            onClick={() => setIsInstantModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-[#141414] shadow-[2px_2px_0px_#141414] rounded-sm text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+            title="Instantly deploy a hoisting job directly to the timetable (-5 planning points penalty)"
+          >
+            <Zap className="w-4 h-4 text-yellow-300 animate-pulse" />
+            Instant Scheduling
+          </button>
         </div>
       </div>
 
@@ -527,9 +644,14 @@ export default function OperationsList({
             className="w-full px-3 py-1.5 bg-white border-2 border-[#141414] rounded-sm text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
           >
             <option value="ALL">ALL BAY AREAS</option>
-            <option value="1">Bay Area 1 (Cols 1 - 10)</option>
-            <option value="2">Bay Area 2 (Cols 11 - 20)</option>
-            <option value="3">Bay Area 3 (Cols 21 - 30)</option>
+            {getAreasForBay(selectedBay).map((areaNum) => {
+              const range = getColumnsForArea(areaNum);
+              return (
+                <option key={areaNum} value={String(areaNum)}>
+                  Bay Area {areaNum} (Cols {range.min} - {range.max})
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -544,10 +666,10 @@ export default function OperationsList({
             className="w-full px-3 py-1.5 bg-white border-2 border-[#141414] rounded-sm text-xs font-mono font-bold focus:outline-none text-ellipsis"
           >
             <option value="ALL">ALL SHIFTS</option>
-            <option value="Shift A">Shift A (06:00 - 14:00)</option>
-            <option value="Shift B">Shift B (14:00 - 22:00)</option>
-            <option value="Shift C">Shift C (22:00 - 06:00)</option>
-            <option value="General Shift">General Shift (09:00 - 18:30)</option>
+            <option value="Shift A">Shift A (06:00 AM - 02:00 PM)</option>
+            <option value="Shift B">Shift B (02:00 PM - 10:00 PM)</option>
+            <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
+            <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
           </select>
         </div>
 
@@ -634,13 +756,14 @@ export default function OperationsList({
                           <th className="py-2.5 px-4 font-black w-24">Priority</th>
                           <th className="py-2.5 px-4 font-black w-28">Job Registry</th>
                           <th className="py-2.5 px-4 font-black">Remarks & Instructions</th>
+                          <th className="py-2.5 px-4 font-black w-32 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-200 font-mono font-bold">
                         {ops.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-zinc-400 bg-zinc-50/50 font-bold uppercase tracking-wider text-[11px]">
-                              No active operations scheduled for this crane in the current shift.
+                            <td colSpan={8} className="py-8 text-center text-zinc-400 bg-zinc-50/50 font-bold uppercase tracking-wider text-[11px]">
+                              No active operations scheduled for this gantry in the current shift.
                             </td>
                           </tr>
                         ) : (
@@ -657,9 +780,9 @@ export default function OperationsList({
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-1.5 text-[#141414] font-extrabold text-[12px]">
                                   <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                                  <span>{op.startTime}</span>
+                                  <span>{formatTimeTo12Hr(op.startTime)}</span>
                                   <ArrowRight className="w-2.5 h-2.5 text-zinc-400" />
-                                  <span>{op.endTime}</span>
+                                  <span>{formatTimeTo12Hr(op.endTime)}</span>
                                 </div>
                                 <div className="text-[9px] text-zinc-500 uppercase mt-0.5 font-bold">
                                   {op.shift}
@@ -709,6 +832,22 @@ export default function OperationsList({
                                   </span>
                                 )}
                                 {op.remarks || <span className="italic text-zinc-400 text-[11px]">No remarks.</span>}
+                              </td>
+
+                              {/* Actions Column */}
+                              <td className="py-3 px-4 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (window.confirm("Are you sure you want to cancel this job? It will be removed from the timetable and reverted back to Draft for rescheduling.")) {
+                                      onCancelSchedule?.(op.id);
+                                    }
+                                  }}
+                                  className="px-2 py-1.5 bg-red-50 hover:bg-red-100 border-2 border-red-300 text-red-700 text-[10px] font-black rounded-sm uppercase tracking-tight transition-all cursor-pointer flex items-center justify-center gap-1 w-full"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  Cancel/Resched
+                                </button>
                               </td>
                             </tr>
                           );
@@ -907,10 +1046,10 @@ export default function OperationsList({
                   className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
                 >
                   <option value="ALL">All Shifts (ALL)</option>
-                  <option value="Shift A">Shift A (06:00-14:00)</option>
-                  <option value="Shift B">Shift B (14:00-22:00)</option>
-                  <option value="Shift C">Shift C (22:00-06:00)</option>
-                  <option value="General Shift">General Shift (09:00-18:30)</option>
+                  <option value="Shift A">Shift A (06:00 AM - 02:00 PM)</option>
+                  <option value="Shift B">Shift B (02:00 PM - 10:00 PM)</option>
+                  <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
+                  <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
                 </select>
               </div>
             </div>
@@ -1009,7 +1148,7 @@ export default function OperationsList({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-zinc-600 font-bold">
                     <div>Gantry: <span className="text-[#141414] font-black">{op.assignedCrane}</span></div>
                     <div>Columns: <span className="text-[#141414] font-black">{(op.startColumn !== undefined ? op.startColumn : op.column)} - {(op.endColumn !== undefined ? op.endColumn : op.column)}</span></div>
-                    <div>Time Window: <span className="text-[#141414] font-black">{op.startTime} - {op.endTime}</span></div>
+                    <div>Time Window: <span className="text-[#141414] font-black">{formatTimeTo12Hr(op.startTime)} - {formatTimeTo12Hr(op.endTime)}</span></div>
                     <div>Dept/Cost Center: <span className="text-[#141414] font-black">{op.department}</span></div>
                   </div>
 
@@ -1050,6 +1189,318 @@ export default function OperationsList({
         </div>
         <span>SYSTEM CLASSIFICATION: COOPERATIVE PUBLIC DIRECTORY</span>
       </div>
+
+      {/* INSTANT GANTRY SCHEDULING OVERLAY WINDOW */}
+      {isInstantModalOpen && (
+        <div id="instant_scheduling_modal" className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white border-4 border-[#141414] shadow-[8px_8px_0px_#141414] w-full max-w-2xl p-6 relative font-sans space-y-4 max-h-[90vh] overflow-y-auto">
+            
+            {/* Modal Title Banner */}
+            <div className="flex items-start justify-between border-b-4 border-[#141414] pb-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 font-mono flex items-center gap-1">
+                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+                  Fast-Track Scheduling System
+                </h3>
+                <h2 className="text-xl font-black text-[#141414] uppercase tracking-tight flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-amber-500 fill-amber-500" />
+                  Instant Gantry Allocation Terminal
+                </h2>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setIsInstantModalOpen(false)}
+                className="p-1.5 hover:bg-zinc-100 border-2 border-[#141414] rounded-sm transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Score Impact Warning Panel */}
+            <div className="bg-amber-50 border-2 border-amber-600 p-3 rounded-sm flex gap-2 text-xs text-amber-950 font-bold">
+              <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="uppercase font-black tracking-wider text-amber-950">Managerial Planning Skill Penalty Active (-5 Points)</p>
+                <p className="font-semibold text-[11px] mt-0.5">
+                  Bypassing the standard planning pipeline will instantly deduct <strong className="text-amber-900 font-black">5 points</strong> from your current monthly balance ({user?.planningPoints ?? 100}/100 pts remaining). This tracks real-time lead planning performance.
+                </p>
+              </div>
+            </div>
+
+            {/* Error Message Panel */}
+            {instantError && (
+              <div className="bg-red-50 border-2 border-red-600 p-3.5 rounded-sm flex gap-2 text-xs text-red-950 font-bold font-mono">
+                <AlertTriangle className="w-5 h-5 text-red-700 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="uppercase font-black text-red-900">Allocation Rejected</p>
+                  <p className="text-[11px] mt-1 whitespace-pre-wrap">{instantError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleInstantSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                {/* 1. Shift selection */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Target Shift *
+                  </label>
+                  <select
+                    value={instantShift}
+                    onChange={(e) => setInstantShift(e.target.value)}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  >
+                    <option value="Shift A">Shift A (06:00 AM – 02:00 PM)</option>
+                    <option value="Shift B">Shift B (02:00 PM – 10:00 PM)</option>
+                    <option value="Shift C">Shift C (10:00 PM – 06:00 AM)</option>
+                    <option value="General Shift">General Shift (09:00 AM – 06:30 PM)</option>
+                  </select>
+                </div>
+
+                {/* 2. Target Crane selection */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Assigned Gantry Crane *
+                  </label>
+                  <select
+                    value={instantCrane}
+                    onChange={(e) => setInstantCrane(e.target.value)}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  >
+                    <option value="">-- Choose Active Crane --</option>
+                    {cranes.map((c) => (
+                      <option key={c.id} value={c.id} disabled={c.status === "Breakdown" || c.status === "Maintenance"}>
+                        {c.name} ({c.id}) - Capacity {c.capacity}T [{c.status}]
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Shop Floor Area */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Shop Floor Area (1-22 Lead Areas) *
+                  </label>
+                  <select
+                    value={instantArea}
+                    onChange={(e) => setInstantArea(Number(e.target.value))}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  >
+                    {Array.from({ length: 22 }, (_, idx) => idx + 1).map((a) => (
+                      <option key={a} value={a}>Area {a} (Bay Runway {getBayForArea(a)})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 4. Target Department */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Cost Center / Department *
+                  </label>
+                  <input
+                    type="text"
+                    value={instantDept}
+                    onChange={(e) => setInstantDept(e.target.value)}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  />
+                </div>
+
+                {/* 5. Start / End Columns */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Operations Columns (1-30) *
+                  </label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={instantStartCol}
+                      onChange={(e) => setInstantStartCol(Number(e.target.value))}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                      placeholder="Min Col"
+                      required
+                    />
+                    <span className="font-mono font-bold">to</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={instantEndCol}
+                      onChange={(e) => setInstantEndCol(Number(e.target.value))}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                      placeholder="Max Col"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* 6. Crane Center Point Column */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Gantry Operating Column (1-30) *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={instantCol}
+                    onChange={(e) => setInstantCol(Number(e.target.value))}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  />
+                </div>
+
+                {/* 7. Start Time picker (12 hr format) */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Scheduled Start Time (12-Hr format) *
+                  </label>
+                  <div className="flex gap-1.5 items-center">
+                    <select
+                      value={startHour}
+                      onChange={(e) => setStartHour(e.target.value)}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      {["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                    <span className="font-bold">:</span>
+                    <select
+                      value={startMinute}
+                      onChange={(e) => setStartMinute(e.target.value)}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      {["00", "15", "30", "45"].map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={startAmpm}
+                      onChange={(e) => setStartAmpm(e.target.value)}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 8. End Time picker (12 hr format) */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Scheduled End Time (12-Hr format) *
+                  </label>
+                  <div className="flex gap-1.5 items-center">
+                    <select
+                      value={endHour}
+                      onChange={(e) => setEndHour(e.target.value)}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      {["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"].map((h) => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                    <span className="font-bold">:</span>
+                    <select
+                      value={endMinute}
+                      onChange={(e) => setEndMinute(e.target.value)}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      {["00", "15", "30", "45"].map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={endAmpm}
+                      onChange={(e) => setEndAmpm(e.target.value)}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 9. Load weight */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Load Weight (Tons) *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={instantWeight}
+                    onChange={(e) => setInstantWeight(Number(e.target.value))}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  />
+                </div>
+
+                {/* 10. Job Priority */}
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Job Allocation Priority *
+                  </label>
+                  <select
+                    value={instantPriority}
+                    onChange={(e) => setInstantPriority(e.target.value as PriorityType)}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    required
+                  >
+                    <option value="P1">P1 (Immediate Production Shutdown Threat)</option>
+                    <option value="P2">P2 (Furnace / Melt Line Crucial Feed)</option>
+                    <option value="P3">P3 (Routine Departmental Logistics)</option>
+                    <option value="P4">P4 (Low Priority Maintenance / Relocation)</option>
+                  </select>
+                </div>
+
+              </div>
+
+              {/* Remarks */}
+              <div>
+                <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                  Specific Remarks & Safety Handshake Instructions
+                </label>
+                <textarea
+                  value={instantRemarks}
+                  onChange={(e) => setInstantRemarks(e.target.value)}
+                  className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none h-16 resize-none"
+                  placeholder="Enter custom remarks / instructions for gantry operator..."
+                />
+              </div>
+
+              {/* Submit / Cancel Footer Buttons */}
+              <div className="flex justify-end gap-3 pt-2 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setIsInstantModalOpen(false)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-[#141414] border-2 border-[#141414] shadow-[2px_2px_0px_#141414] rounded-sm font-black uppercase tracking-wider cursor-pointer transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isInstantSubmitting}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-[#141414] shadow-[2px_2px_0px_#141414] rounded-sm font-black uppercase tracking-wider cursor-pointer flex items-center gap-1.5 transition-all disabled:opacity-50"
+                >
+                  <Zap className="w-4 h-4 text-yellow-300 animate-pulse" />
+                  {isInstantSubmitting ? "Deploying Allocation..." : "Instantly Deploy Hoist Job (-5 Pts)"}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

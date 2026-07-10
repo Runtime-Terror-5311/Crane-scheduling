@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Schedule, CraneRequest, Crane, PriorityType } from "../types";
 import { generateScheduledHistoryPDF } from "../utils/pdfGenerator";
+import { formatTimeTo12Hr } from "../utils/shiftUtils";
 
 interface CraneCalendarProps {
   schedules: Schedule[];
@@ -198,10 +199,10 @@ export default function CraneCalendar({ schedules, requests, cranes }: CraneCale
               className="w-full p-2 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
             >
               <option value="ALL">All Shifts (ALL)</option>
-              <option value="Shift A">Shift A (06:00-14:00)</option>
-              <option value="Shift B">Shift B (14:00-22:00)</option>
-              <option value="Shift C">Shift C (22:00-06:00)</option>
-              <option value="General Shift">General Shift (09:00-18:30)</option>
+              <option value="Shift A">Shift A (06:00 AM - 02:00 PM)</option>
+              <option value="Shift B">Shift B (02:00 PM - 10:00 PM)</option>
+              <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
+              <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
             </select>
           </div>
 
@@ -367,9 +368,9 @@ export default function CraneCalendar({ schedules, requests, cranes }: CraneCale
                       <td className="py-3 px-4 font-mono text-zinc-900 font-black whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                          <span>{job.startTime}</span>
+                          <span>{formatTimeTo12Hr(job.startTime)}</span>
                           <ArrowRight className="w-2.5 h-2.5 text-zinc-400 shrink-0" />
-                          <span>{job.endTime}</span>
+                          <span>{formatTimeTo12Hr(job.endTime)}</span>
                         </div>
                       </td>
 

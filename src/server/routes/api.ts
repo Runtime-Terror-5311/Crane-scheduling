@@ -38,6 +38,8 @@ import {
   createShiftReport,
   completeShift,
   resetDatabase,
+  cancelSchedule,
+  instantSchedule,
 } from "../controllers/scheduleController.js";
 
 const router = Router();
@@ -78,6 +80,8 @@ router.post("/schedules/generate", authenticateToken, requireAdmin, generateSche
 router.post("/schedules/clear", authenticateToken, requireAdmin, clearSchedule);
 router.patch("/schedules/:id/override", authenticateToken, requireAdmin, overrideSchedule);
 router.post("/schedules/complete", authenticateToken, requireAdmin, completeShift);
+router.delete("/schedules/:id", authenticateToken, cancelSchedule);
+router.post("/schedules/instant", authenticateToken, instantSchedule);
 
 // Settings
 router.get("/settings", authenticateToken, getSettings);
