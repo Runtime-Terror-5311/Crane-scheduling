@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar } from "lucide-react";
 import { CraneRequest, User, ShiftType, PriorityType, Crane } from "../types";
-import { getCurrentShift } from "../utils/shiftUtils";
+import { getCurrentShift, getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
 
 interface DashboardSupervisorProps {
   user: User;
@@ -244,7 +244,7 @@ export default function DashboardSupervisor({
   const secondsStr = formatTimeDigit(currentTime.getSeconds());
 
   const isWindowOpen = bypassWindow || user.role === "Admin" || checkIsWithinWindow(currentTime);
-  const [bay, setBay] = useState<string>("A");
+  const [bay, setBay] = useState<string>(() => user.role === "Admin" ? "1" : getBayForArea(user.area || 1));
   const [shift, setShift] = useState<ShiftType>(() => getCurrentShift(new Date()));
   const [department, setDepartment] = useState("");
   const [startColumn, setStartColumn] = useState<number>(3);
@@ -272,21 +272,24 @@ export default function DashboardSupervisor({
     }
   }, [currentTime, currentSubView]);
 
+  useEffect(() => {
+    const validAreas = getAreasForBay(bay);
+    if (!validAreas.includes(selectedFormArea)) {
+      const nextArea = validAreas[0];
+      setSelectedFormArea(nextArea);
+      const cols = getColumnsForArea(nextArea);
+      setStartColumn(cols.min + 2);
+      setEndColumn(cols.min + 4);
+    }
+  }, [bay, selectedFormArea]);
+
   const handleOpenForm = (areaNum: number) => {
     setSelectedFormArea(areaNum);
-    // Auto preset column range based on area range
-    if (areaNum === 1) {
-      setStartColumn(3);
-      setEndColumn(5);
-    }
-    if (areaNum === 2) {
-      setStartColumn(13);
-      setEndColumn(15);
-    }
-    if (areaNum === 3) {
-      setStartColumn(23);
-      setEndColumn(25);
-    }
+    const cols = getColumnsForArea(areaNum);
+    setStartColumn(cols.min + 2);
+    setEndColumn(cols.min + 4);
+    const assocBay = getBayForArea(areaNum);
+    setBay(assocBay);
     setFormError("");
     setCurrentSubView("new-request");
   };
@@ -304,16 +307,9 @@ export default function DashboardSupervisor({
     const eCol = Math.max(startColumn, endColumn);
 
     // Validate Columns limits
-    if (selectedFormArea === 1 && (sCol < 1 || eCol > 10)) {
-      setFormError("Area 1 operations must occur entirely between Columns 1 and 10.");
-      return;
-    }
-    if (selectedFormArea === 2 && (sCol < 11 || eCol > 20)) {
-      setFormError("Area 2 operations must occur entirely between Columns 11 and 20.");
-      return;
-    }
-    if (selectedFormArea === 3 && (sCol < 21 || eCol > 30)) {
-      setFormError("Area 3 operations must occur entirely between Columns 21 and 30.");
+    const range = getColumnsForArea(selectedFormArea);
+    if (sCol < range.min || eCol > range.max) {
+      setFormError(`Area ${selectedFormArea} operations must occur entirely between Columns ${range.min} and ${range.max}.`);
       return;
     }
 
@@ -389,8 +385,8 @@ export default function DashboardSupervisor({
     return user.area === areaNum;
   };
 
-  const areas = [1, 2, 3];
-  const bays = ["A", "B", "C", "D", "E", "F", "G"];
+  const areas = Array.from({ length: 22 }, (_, i) => i + 1);
+  const bays = ["1", "2", "3", "4", "5", "6", "7"];
 
   return (
     <div id="supervisor_dashboard" className="space-y-8 font-sans">
@@ -759,15 +755,20 @@ export default function DashboardSupervisor({
                     onChange={(e) => {
                       const areaNum = Number(e.target.value);
                       setSelectedFormArea(areaNum);
-                      if (areaNum === 1) { setStartColumn(3); setEndColumn(5); }
-                      if (areaNum === 2) { setStartColumn(13); setEndColumn(15); }
-                      if (areaNum === 3) { setStartColumn(23); setEndColumn(25); }
+                      const cols = getColumnsForArea(areaNum);
+                      setStartColumn(cols.min + 2);
+                      setEndColumn(cols.min + 4);
                     }}
                     className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
                   >
-                    <option value={1}>Area 1 (Cols 1-10)</option>
-                    <option value={2}>Area 2 (Cols 11-20)</option>
-                    <option value={3}>Area 3 (Cols 21-30)</option>
+                    {getAreasForBay(bay).map((areaNum) => {
+                      const cols = getColumnsForArea(areaNum);
+                      return (
+                        <option key={areaNum} value={areaNum}>
+                          Area {areaNum} (Cols {cols.min}-{cols.max})
+                        </option>
+                      );
+                    })}
                   </select>
                   {user.role !== "Admin" && (
                     <p className="text-[10px] text-zinc-400 mt-1 font-mono font-semibold">Locked to your assigned supervisor Area {user.area}.</p>

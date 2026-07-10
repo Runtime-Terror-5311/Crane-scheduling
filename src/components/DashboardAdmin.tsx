@@ -18,6 +18,7 @@ import {
   Download,
 } from "lucide-react";
 import { Crane, User, CraneRequest, Schedule, AuditLog, ShiftReport, PriorityType } from "../types";
+import { getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
 import { generateDateWisePDF } from "../utils/pdfGenerator";
 
 interface DashboardAdminProps {
@@ -178,16 +179,30 @@ export default function DashboardAdmin({
     return Math.min(percentage, 100);
   };
 
-  const uA1 = calculateUtil("A1");
-  const uA2 = calculateUtil("A2");
-  const uA3 = calculateUtil("A3");
+  const craneUtils = cranes.map((c) => ({
+    id: c.id,
+    name: c.name,
+    util: calculateUtil(c.id)
+  })).sort((a, b) => b.util - a.util);
 
-  const areaDemand = { 1: 0, 2: 0, 3: 0 };
+  const top3Cranes = craneUtils.slice(0, 3);
+
+  const areaDemand: Record<number, number> = {};
+  for (let i = 1; i <= 22; i++) {
+    areaDemand[i] = 0;
+  }
   requests.forEach((r) => {
-    if (areaDemand[r.area as 1 | 2 | 3] !== undefined) {
-      areaDemand[r.area as 1 | 2 | 3]++;
+    if (areaDemand[r.area] !== undefined) {
+      areaDemand[r.area]++;
+    } else {
+      areaDemand[r.area] = 1;
     }
   });
+
+  const topAreas = Object.entries(areaDemand)
+    .map(([area, count]) => ({ area: Number(area), count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
 
   const priorityBreakdown: Record<PriorityType, number> = { P1: 0, P2: 0, P3: 0, P4: 0 };
   requests.forEach((r) => {
@@ -532,57 +547,43 @@ export default function DashboardAdmin({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Visual Gantry Occupancy % Charts */}
+             {/* Visual Gantry Occupancy % Charts */}
             <div className="bg-white p-5 rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] space-y-4">
               <h3 className="font-bold text-zinc-900 text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-zinc-200 pb-2">
                 <TrendingUp className="w-4 h-4 text-emerald-600" />
                 Gantry Workload Occupancy (Shift Capacity)
               </h3>
               <div className="space-y-4 font-mono text-xs">
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span className="font-extrabold text-[#141414]">Crane A1 (Area 1 Primary)</span>
-                    <span className="font-black">{uA1}%</span>
+                {top3Cranes.map((tc, idx) => (
+                  <div key={tc.id}>
+                    <div className="flex justify-between mb-1">
+                      <span className="font-extrabold text-[#141414]">{tc.name}</span>
+                      <span className="font-black">{tc.util}%</span>
+                    </div>
+                    <div className="w-full bg-zinc-100 h-3 border-2 border-[#141414] overflow-hidden rounded-sm">
+                      <div className={`h-full transition-all ${idx === 0 ? "bg-emerald-600" : idx === 1 ? "bg-amber-500" : "bg-zinc-800"}`} style={{ width: `${tc.util}%` }}></div>
+                    </div>
                   </div>
-                  <div className="w-full bg-zinc-100 h-3 border-2 border-[#141414] overflow-hidden rounded-sm">
-                    <div className="bg-emerald-600 h-full transition-all" style={{ width: `${uA1}%` }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span className="font-extrabold text-[#141414]">Crane A2 (Area 2 Primary)</span>
-                    <span className="font-black">{uA2}%</span>
-                  </div>
-                  <div className="w-full bg-zinc-100 h-3 border-2 border-[#141414] overflow-hidden rounded-sm">
-                    <div className="bg-amber-500 h-full transition-all" style={{ width: `${uA2}%` }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span className="font-extrabold text-[#141414]">Crane A3 (Area 3 Primary)</span>
-                    <span className="font-black">{uA3}%</span>
-                  </div>
-                  <div className="w-full bg-zinc-100 h-3 border-2 border-[#141414] overflow-hidden rounded-sm">
-                    <div className="bg-zinc-800 h-full transition-all" style={{ width: `${uA3}%` }}></div>
-                  </div>
-                </div>
+                ))}
+                {top3Cranes.length === 0 && (
+                  <p className="text-zinc-500 text-xs">No cranes currently registered.</p>
+                )}
               </div>
             </div>
 
             {/* Demands & Priorities */}
             <div className="bg-white p-5 rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] grid grid-cols-2 gap-4 font-mono text-xs">
               <div className="space-y-3 border-r-2 border-zinc-200 pr-2">
-                <h4 className="font-black text-zinc-800 text-[11px] uppercase tracking-wider mb-2 border-b border-zinc-100 pb-1">Area Demands</h4>
+                <h4 className="font-black text-zinc-800 text-[11px] uppercase tracking-wider mb-2 border-b border-zinc-100 pb-1">Top Area Demands</h4>
                 <div className="space-y-1.5 font-bold">
-                  <div className="flex justify-between">
-                    <span>Area 1:</span> <span className="text-[#141414]">{areaDemand[1]} requests</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Area 2:</span> <span className="text-[#141414]">{areaDemand[2]} requests</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Area 3:</span> <span className="text-[#141414]">{areaDemand[3]} requests</span>
-                  </div>
+                  {topAreas.map((ta) => (
+                    <div key={ta.area} className="flex justify-between">
+                      <span>Area {ta.area}:</span> <span className="text-[#141414]">{ta.count} requests</span>
+                    </div>
+                  ))}
+                  {topAreas.length === 0 && (
+                    <p className="text-zinc-500 text-xs">No active demands recorded.</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-3 pl-2">
@@ -1178,9 +1179,9 @@ export default function DashboardAdmin({
                       onChange={(e) => setEditArea(Number(e.target.value))}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-xs"
                     >
-                      <option value={1}>Area 1</option>
-                      <option value={2}>Area 2</option>
-                      <option value={3}>Area 3</option>
+                      {Array.from({ length: 22 }, (_, i) => i + 1).map((areaNum) => (
+                        <option key={areaNum} value={areaNum}>Area {areaNum}</option>
+                      ))}
                     </select>
                   </div>
                 )}
@@ -1311,9 +1312,9 @@ export default function DashboardAdmin({
                       onChange={(e) => setNewArea(Number(e.target.value))}
                       className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-xs"
                     >
-                      <option value={1}>Area 1</option>
-                      <option value={2}>Area 2</option>
-                      <option value={3}>Area 3</option>
+                      {Array.from({ length: 22 }, (_, i) => i + 1).map((areaNum) => (
+                        <option key={areaNum} value={areaNum}>Area {areaNum}</option>
+                      ))}
                     </select>
                   </div>
                 )}
@@ -1622,6 +1623,5 @@ export default function DashboardAdmin({
         </div>
       )}
     </div>
-    //hello
   );
 }

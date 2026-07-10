@@ -1,5 +1,38 @@
 import { ShiftType } from "../types.js";
 
+export const BAY_AREA_MAPPING: Record<string, number[]> = {
+  "1": [1, 8, 16],
+  "2": [2, 9, 17],
+  "3": [3, 10, 18],
+  "4": [4, 12, 19],
+  "5": [5, 13, 20],
+  "6": [6, 14, 21],
+  "7": [7, 15, 22]
+};
+
+export function getBayForArea(area: number): string {
+  for (const [bay, areas] of Object.entries(BAY_AREA_MAPPING)) {
+    if (areas.includes(area)) {
+      return bay;
+    }
+  }
+  return "1";
+}
+
+export function getColumnsForArea(area: number): { min: number; max: number } {
+  for (const [bay, areas] of Object.entries(BAY_AREA_MAPPING)) {
+    const idx = areas.indexOf(area);
+    if (idx === 0) return { min: 1, max: 10 };
+    if (idx === 1) return { min: 11, max: 20 };
+    if (idx === 2) return { min: 21, max: 30 };
+  }
+  return { min: 1, max: 10 };
+}
+
+export function getAreasForBay(bay: string): number[] {
+  return BAY_AREA_MAPPING[bay] || [1, 8, 16];
+}
+
 const SHIFT_WINDOWS: Record<ShiftType, [number, number]> = {
   "Shift A": [6 * 60, 14 * 60], // 06:00–14:00
   "Shift B": [14 * 60, 22 * 60], // 14:00–22:00

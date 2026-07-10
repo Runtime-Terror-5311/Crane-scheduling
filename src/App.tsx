@@ -10,6 +10,7 @@ import Sidebar from "./components/Sidebar";
 import CranesSpecifications from "./components/CranesSpecifications";
 import CraneCalendar from "./components/CraneCalendar";
 import { User, Crane, CraneRequest, Schedule, AuditLog, ShiftReport } from "./types";
+import { getCurrentShift, getBayForArea, getAreasForBay } from "./utils/shiftUtils";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("crane_token"));
@@ -32,13 +33,13 @@ export default function App() {
   const [selectedShift, setSelectedShift] = useState<string>("ALL");
   const [selectedCraneFilter, setSelectedCraneFilter] = useState<string>("ALL");
   const [selectedAreaFilter, setSelectedAreaFilter] = useState<string>("ALL");
-  const [selectedBay, setSelectedBay] = useState<string>("A");
-  const baysList = ["A", "B", "C", "D", "E", "F", "G"];
+  const [selectedBay, setSelectedBay] = useState<string>("1");
+  const baysList = ["1", "2", "3", "4", "5", "6", "7"];
 
   // Filter lists by selected bay
-  const filteredCranes = cranes.filter((c) => c.id.toUpperCase().startsWith(selectedBay.toUpperCase()));
+  const filteredCranes = cranes.filter((c) => c.id.startsWith(selectedBay + "-") || c.id.startsWith(selectedBay));
   const filteredSchedules = schedules.filter((s) => {
-    const craneMatch = s.assignedCrane.toUpperCase().startsWith(selectedBay.toUpperCase());
+    const craneMatch = s.assignedCrane.startsWith(selectedBay + "-") || s.assignedCrane.startsWith(selectedBay);
     const bayMatch = s.bay ? s.bay.toUpperCase() === selectedBay.toUpperCase() : false;
     return craneMatch || bayMatch;
   });
@@ -47,10 +48,32 @@ export default function App() {
       return r.bay.toUpperCase() === selectedBay.toUpperCase();
     }
     if (r.mandatoryCrane && r.mandatoryCrane !== "Any") {
-      return r.mandatoryCrane.toUpperCase().startsWith(selectedBay.toUpperCase());
+      return r.mandatoryCrane.startsWith(selectedBay + "-") || r.mandatoryCrane.startsWith(selectedBay);
     }
-    return selectedBay === "A";
+    return selectedBay === "1";
   });
+
+  // Filter for Gantt Chart and Bay Visualization specifically (current date and current shift only)
+  const currentShiftAndDateSchedules = React.useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const currShift = getCurrentShift(new Date());
+    return filteredSchedules.filter((sched) => {
+      const origReq = requests.find((r) => r.id === sched.requestId);
+      const schedDate = origReq?.date || (origReq?.createdAt ? origReq.createdAt.split("T")[0] : todayStr);
+      const schedShift = origReq?.shift || sched.shift || "General Shift";
+      return schedDate === todayStr && schedShift === currShift;
+    });
+  }, [filteredSchedules, requests]);
+
+  const currentShiftAndDateRequests = React.useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const currShift = getCurrentShift(new Date());
+    return filteredRequests.filter((req) => {
+      const reqDate = req.date || (req.createdAt ? req.createdAt.split("T")[0] : todayStr);
+      const reqShift = req.shift || "General Shift";
+      return reqDate === todayStr && reqShift === currShift;
+    });
+  }, [filteredRequests]);
 
   // Loading / Error states
   const [loading, setLoading] = useState(true);
@@ -68,11 +91,11 @@ export default function App() {
   // Safety area/bays lockout enforcement for Area Users
   useEffect(() => {
     if (user && user.role === "Area User") {
-      const uBay = user.craneNo ? user.craneNo.charAt(0).toUpperCase() : (user.area === 1 ? "A" : user.area === 2 ? "B" : "C");
+      const uBay = user.craneNo ? user.craneNo.split("-")[0] : String(getBayForArea(user.area || 1));
       if (selectedBay !== uBay) {
         setSelectedBay(uBay);
       }
-      // Area Users are locked to their Bay (e.g. Bay A), but they are allowed to change the area filter and view all cranes of the bay.
+      // Area Users are locked to their Bay (e.g. Bay 1), but they are allowed to change the area filter and view all cranes of the bay.
     }
   }, [user]);
 
@@ -97,7 +120,7 @@ export default function App() {
         
         // Auto-restrict bay and area if they are an Area User
         if (data.user.role === "Area User") {
-          const uBay = data.user.craneNo ? data.user.craneNo.charAt(0).toUpperCase() : (data.user.area === 1 ? "A" : data.user.area === 2 ? "B" : "C");
+          const uBay = data.user.craneNo ? data.user.craneNo.split("-")[0] : String(getBayForArea(data.user.area || 1));
           setSelectedBay(uBay);
           setSelectedAreaFilter(String(data.user.area));
         }
@@ -163,7 +186,7 @@ export default function App() {
     
     // Auto-restrict bay and area if they are an Area User
     if (loggedUser.role === "Area User") {
-      const uBay = loggedUser.craneNo ? loggedUser.craneNo.charAt(0).toUpperCase() : (loggedUser.area === 1 ? "A" : loggedUser.area === 2 ? "B" : "C");
+      const uBay = loggedUser.craneNo ? loggedUser.craneNo.split("-")[0] : String(getBayForArea(loggedUser.area || 1));
       setSelectedBay(uBay);
       setSelectedAreaFilter(String(loggedUser.area));
     }
@@ -663,8 +686,8 @@ export default function App() {
               {/* Shop Floor Bay Runway Grid Display (Adaptive horizontal or mobile-friendly vertical layout) */}
               <BayVisualization 
                 cranes={filteredCranes} 
-                schedules={filteredSchedules} 
-                requests={filteredRequests}
+                schedules={currentShiftAndDateSchedules} 
+                requests={currentShiftAndDateRequests}
                 selectedShift={selectedShift}
                 selectedCraneFilter={selectedCraneFilter}
                 selectedAreaFilter={selectedAreaFilter}
@@ -685,8 +708,8 @@ export default function App() {
           {activePage === "gantt" && (
             <div id="gantt_chart_page">
               <GanttChart 
-                schedules={filteredSchedules} 
-                requests={filteredRequests}
+                schedules={currentShiftAndDateSchedules} 
+                requests={currentShiftAndDateRequests}
                 cranes={filteredCranes}
                 selectedShift={selectedShift}
                 selectedCraneFilter={selectedCraneFilter}
