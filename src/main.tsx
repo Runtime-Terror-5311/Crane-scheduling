@@ -9,7 +9,7 @@ if (originalFetch) {
   try {
     Object.defineProperty(window, 'fetch', {
       value: function (input: RequestInfo | URL, init?: RequestInit) {
-        const appUrl = (import.meta as any).env.VITE_APP_URL || "";
+        const appUrl = (import.meta as any).env.VITE_APP_URL;
         if (appUrl && typeof input === "string" && input.startsWith("/api/")) {
           const normalizedAppUrl = appUrl.endsWith("/") ? appUrl.slice(0, -1) : appUrl;
           return originalFetch(normalizedAppUrl + input, {
