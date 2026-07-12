@@ -52,7 +52,7 @@ export const getCranes = (req: Request, res: Response): void => {
 
 export const updateCrane = (req: Request, res: Response): void => {
   const { id } = req.params;
-  const { name, capacity, minColumn, maxColumn, allocatedMinColumn, allocatedMaxColumn, currentColumn, status, maintenanceNotes, auxCapacity } = req.body;
+  const { name, capacity, minColumn, maxColumn, allocatedMinColumn, allocatedMaxColumn, currentColumn, status, maintenanceNotes, auxCapacity, breakdownStartCol, breakdownEndCol } = req.body;
   const adminUser = (req as any).user;
 
   const db = readDB();
@@ -76,6 +76,20 @@ export const updateCrane = (req: Request, res: Response): void => {
     status: status || oldCrane.status,
     maintenanceNotes: typeof maintenanceNotes === "string" ? maintenanceNotes : oldCrane.maintenanceNotes,
     auxCapacity: typeof auxCapacity === "number" ? auxCapacity : (auxCapacity === null ? undefined : oldCrane.auxCapacity),
+    breakdownStartCol: status === "Breakdown" 
+      ? (breakdownStartCol !== undefined && breakdownStartCol !== null && !isNaN(Number(breakdownStartCol))
+          ? Number(breakdownStartCol)
+          : (oldCrane.breakdownStartCol !== undefined && oldCrane.breakdownStartCol !== null
+              ? oldCrane.breakdownStartCol
+              : Math.max(1, (typeof currentColumn === "number" ? currentColumn : oldCrane.currentColumn) - 1)))
+      : undefined,
+    breakdownEndCol: status === "Breakdown" 
+      ? (breakdownEndCol !== undefined && breakdownEndCol !== null && !isNaN(Number(breakdownEndCol))
+          ? Number(breakdownEndCol)
+          : (oldCrane.breakdownEndCol !== undefined && oldCrane.breakdownEndCol !== null
+              ? oldCrane.breakdownEndCol
+              : Math.min(30, (typeof currentColumn === "number" ? currentColumn : oldCrane.currentColumn) + 1)))
+      : undefined,
   };
 
   db.cranes[craneIndex] = updatedCrane;

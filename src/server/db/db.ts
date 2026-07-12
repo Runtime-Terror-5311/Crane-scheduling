@@ -429,8 +429,23 @@ export const initDB = async (): Promise<void> => {
 
   // Unconditional migration of cranes list and user craneNo assignments to upgrade the database on startup
   if (cachedState) {
-    // Overwrite with the 24 newly specified cranes
-    cachedState.cranes = defaultState.cranes;
+    // Overwrite with the 24 newly specified cranes, but preserve dynamic state properties like status, column, notes, and breakdown ranges!
+    const existingCranesMap = new Map((cachedState.cranes || []).map(c => [c.id.toUpperCase(), c]));
+    const mergedCranes = defaultState.cranes.map(defaultCrane => {
+      const existing = existingCranesMap.get(defaultCrane.id.toUpperCase());
+      if (existing) {
+        return {
+          ...defaultCrane,
+          currentColumn: existing.currentColumn ?? defaultCrane.currentColumn,
+          status: existing.status ?? defaultCrane.status,
+          maintenanceNotes: existing.maintenanceNotes ?? defaultCrane.maintenanceNotes,
+          breakdownStartCol: existing.breakdownStartCol,
+          breakdownEndCol: existing.breakdownEndCol,
+        };
+      }
+      return defaultCrane;
+    });
+    cachedState.cranes = mergedCranes;
     updated = true;
 
     // Migrate user assignments

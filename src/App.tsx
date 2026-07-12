@@ -9,6 +9,7 @@ import DashboardAdmin from "./components/DashboardAdmin";
 import Sidebar from "./components/Sidebar";
 import CranesSpecifications from "./components/CranesSpecifications";
 import CraneCalendar from "./components/CraneCalendar";
+import CraneManagement from "./components/CraneManagement";
 import { User, Crane, CraneRequest, Schedule, AuditLog, ShiftReport } from "./types";
 import { getCurrentShift, getBayForArea, getAreasForBay } from "./utils/shiftUtils";
 
@@ -17,7 +18,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
 
   // Pages layout state
-  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar">("home");
+  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management">("home");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Core telemetries
@@ -607,7 +608,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-md font-black tracking-tighter text-white font-sans uppercase">
-                  CRANE-OPS <span className="text-amber-500">v2.4</span>
+                  CRANE-OPS <span className="text-amber-500">v1.00</span>
                 </h1>
                 <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest leading-none font-bold">
                   BAY {selectedBay} - OPERATION CORE SYSTEM TERMINAL
@@ -823,6 +824,20 @@ export default function App() {
                 onUpdateCrane={handleUpdateCrane}
                 onCreateCrane={handleCreateCrane}
                 onDeleteCrane={handleDeleteCrane}
+              />
+            </div>
+          )}
+
+          {/* Page 5.5: Dedicated Crane Management page */}
+          {activePage === "crane_management" && (
+            <div id="crane_management_page">
+              <CraneManagement
+                user={user}
+                cranes={cranes}
+                onUpdateCrane={handleUpdateCrane}
+                onCreateCrane={handleCreateCrane}
+                onDeleteCrane={handleDeleteCrane}
+                onRefresh={() => { if (user) reloadDatabase(user); }}
               />
             </div>
           )}

@@ -186,6 +186,11 @@ export default function BayVisualization({
                     <div className="text-[10px] font-black tracking-tight">{crane.id}</div>
                     <div className="text-[8px] uppercase font-black opacity-90 leading-tight">{currentStatus}</div>
                     <div className="text-[8px] font-bold">COL {crane.currentColumn}</div>
+                    {crane.status === "Breakdown" && crane.breakdownStartCol !== undefined && (
+                      <div className="text-[7px] text-red-150 font-semibold leading-tight mt-0.5">
+                        Cols {crane.breakdownStartCol}-{crane.breakdownEndCol}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -256,9 +261,16 @@ export default function BayVisualization({
                     <span className="text-[#141414] font-black">Col {crane.currentColumn}</span>
                   </div>
                   {crane.status === "Breakdown" ? (
-                    <div className="text-[9px] text-red-950 flex items-start gap-1 mt-1 p-1 bg-red-100 border border-red-600 rounded-sm font-black uppercase">
-                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-red-700 animate-bounce" />
-                      <span>CRITICAL BREAKDOWN ACTIVE!</span>
+                    <div className="text-[9px] text-red-950 flex flex-col gap-0.5 mt-1 p-1 bg-red-100 border border-red-600 rounded-sm font-black uppercase">
+                      <div className="flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-red-700 animate-bounce" />
+                        <span>BREAKDOWN ACTIVE!</span>
+                      </div>
+                      {crane.breakdownStartCol !== undefined && crane.breakdownEndCol !== undefined && (
+                        <span className="text-[8px] text-red-700 font-extrabold font-mono">
+                          BLOCKED RANGE: COLS {crane.breakdownStartCol}-{crane.breakdownEndCol}
+                        </span>
+                      )}
                     </div>
                   ) : crane.status === "Maintenance" ? (
                     <div className="text-[9px] text-red-900 flex items-start gap-1 mt-1 p-1 bg-red-100 border border-red-400 rounded-sm">
@@ -325,6 +337,26 @@ export default function BayVisualization({
         </div>
       )}
 
+      {/* Breakdowns alert banner */}
+      {visibleCranes.some((c) => c.status === "Breakdown") && (
+        <div className="mb-6 p-4 bg-red-100 border-2 border-red-600 rounded-sm text-xs space-y-1.5 text-red-950 font-mono shadow-[2px_2px_0px_#141414]">
+          <div className="flex items-center gap-2 font-black text-red-700 uppercase tracking-tight">
+            <AlertTriangle className="w-4 h-4 animate-pulse text-red-600" />
+            CRITICAL TRACK RUNWAY OBSTRUCTION DETECTED
+          </div>
+          <p className="text-[11px] font-bold">
+            The following crane(s) are in breakdown status and blocking sections of the runway gantry track. Remember: other cranes operating in the same bay runway track cannot cross this blocked section!
+          </p>
+          <ul className="list-disc list-inside space-y-1 text-[11px] font-bold text-red-800">
+            {visibleCranes.filter((c) => c.status === "Breakdown").map((c) => (
+              <li key={c.id}>
+                <strong>Crane {c.name || c.id}</strong>: Breakdown occurred between Column <span className="text-red-700 font-black">{c.breakdownStartCol || c.currentColumn}</span> and Column <span className="text-red-700 font-black">{c.breakdownEndCol || c.currentColumn}</span>.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Runway Layout Container */}
       <div className="relative mt-12 mb-10 px-2 pt-14 pb-4 bg-zinc-50 rounded-sm border-2 border-[#141414]">
         
@@ -371,12 +403,17 @@ export default function BayVisualization({
                 className="absolute transition-all duration-1000 ease-in-out -top-14 -translate-x-1/2 flex flex-col items-center z-10"
                 style={{ left: `${percentage}%` }}
               >
-                {/* Crane Visual Card */}
-                <div className={`px-2.5 py-1.5 rounded-sm ${statusBg} border-2 border-[#141414] shadow-[3px_3px_0px_#141414] text-center font-mono select-none w-20 crane-box-shape`}>
-                  <div className="text-[12px] font-black tracking-tight">{crane.id}</div>
-                  <div className="text-[8px] uppercase font-black opacity-90">{currentStatus}</div>
-                  <div className="text-[8px] font-bold">COL {crane.currentColumn}</div>
-                </div>
+              {/* Crane Visual Card */}
+              <div className={`px-2.5 py-1.5 rounded-sm ${statusBg} border-2 border-[#141414] shadow-[3px_3px_0px_#141414] text-center font-mono select-none w-20 crane-box-shape`}>
+                <div className="text-[12px] font-black tracking-tight">{crane.id}</div>
+                <div className="text-[8px] uppercase font-black opacity-90">{currentStatus}</div>
+                <div className="text-[8px] font-bold">COL {crane.currentColumn}</div>
+                {crane.status === "Breakdown" && crane.breakdownStartCol !== undefined && (
+                  <div className="text-[7.5px] text-red-100 font-bold leading-tight mt-0.5 uppercase tracking-tighter bg-red-950/40 rounded-sm py-0.5 px-1">
+                    B-Down<br />Cols {crane.breakdownStartCol}-{crane.breakdownEndCol}
+                  </div>
+                )}
+              </div>
                 {/* Visual Connection Hook */}
                 <div className="w-1 bg-[#141414] h-10 -mt-0.5 relative">
                   <div className="absolute -bottom-1 -left-1 w-3 h-3 rounded-full bg-[#141414] border border-white flex items-center justify-center">
@@ -394,20 +431,45 @@ export default function BayVisualization({
             const colNum = i + 1;
             const isArea1 = colNum <= 10;
             const isArea2 = colNum > 10 && colNum <= 20;
-            const bgClass = isArea1 
+            
+            // Check if this column is part of any active breakdown range
+            const breakdownCrane = visibleCranes.find(
+              (c) => c.status === "Breakdown" && 
+                     c.breakdownStartCol !== undefined && 
+                     c.breakdownEndCol !== undefined && 
+                     colNum >= Math.min(c.breakdownStartCol, c.breakdownEndCol) && 
+                     colNum <= Math.max(c.breakdownStartCol, c.breakdownEndCol)
+            );
+
+            let bgClass = isArea1 
               ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-900 border-r border-zinc-200" 
               : isArea2 
               ? "bg-amber-100/30 hover:bg-amber-100 text-amber-950 border-r border-zinc-200" 
               : "bg-zinc-200/30 hover:bg-zinc-200 text-zinc-900 border-r border-zinc-200";
 
+            if (breakdownCrane) {
+              bgClass = "bg-red-600 hover:bg-red-700 text-white border-r border-red-800 font-extrabold animate-pulse";
+            }
+
             return (
               <div
                 key={colNum}
-                className={`flex flex-col items-center py-2 last:border-r-0 ${bgClass} transition-colors`}
-                title={`Column ${colNum} | Area ${isArea1 ? 1 : isArea2 ? 2 : 3}`}
+                className={`flex flex-col items-center py-2 last:border-r-0 ${bgClass} transition-colors relative group cursor-help`}
+                title={breakdownCrane ? `🚨 CRITICAL BREAKDOWN: ${breakdownCrane.name || breakdownCrane.id} is broken down here, blocking Columns ${breakdownCrane.breakdownStartCol}-${breakdownCrane.breakdownEndCol}!` : `Column ${colNum} | Area ${isArea1 ? 1 : isArea2 ? 2 : 3}`}
               >
                 <div className="font-extrabold">{colNum}</div>
-                {colNum % 5 === 0 && <span className="text-[8px] text-[#141414]">▲</span>}
+                {breakdownCrane ? (
+                  <span className="text-[7.5px] text-white font-black">❌</span>
+                ) : (
+                  colNum % 5 === 0 && <span className="text-[8px] text-[#141414]">▲</span>
+                )}
+                
+                {/* Visual tooltip for breakdown details */}
+                {breakdownCrane && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-red-900 text-white text-[9px] py-1 px-2 rounded-sm whitespace-nowrap z-50 shadow-md font-mono border border-white">
+                    {breakdownCrane.id} BREAKDOWN: COLS {breakdownCrane.breakdownStartCol}-{breakdownCrane.breakdownEndCol}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -474,9 +536,16 @@ export default function BayVisualization({
                   <span className="text-[#141414]">Column {crane.currentColumn}</span>
                 </div>
                 {crane.status === "Breakdown" ? (
-                  <div className="text-[10px] text-red-950 flex items-start gap-1 mt-2 p-1.5 bg-red-100 border border-red-600 rounded-sm font-black uppercase">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-700 animate-bounce" />
-                    <span>CRITICAL BREAKDOWN ACTIVE!</span>
+                  <div className="text-[10px] text-red-950 flex flex-col gap-1 mt-2 p-1.5 bg-red-100 border border-red-600 rounded-sm font-black uppercase">
+                    <div className="flex items-center gap-1">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-700 animate-bounce" />
+                      <span>CRITICAL BREAKDOWN ACTIVE!</span>
+                    </div>
+                    {crane.breakdownStartCol !== undefined && crane.breakdownEndCol !== undefined && (
+                      <div className="text-[9px] text-red-700 font-extrabold font-mono leading-none">
+                        TRACK BLOCKED: COLS {crane.breakdownStartCol} - {crane.breakdownEndCol}
+                      </div>
+                    )}
                   </div>
                 ) : crane.status === "Maintenance" ? (
                   <div className="text-[10px] text-red-900 flex items-start gap-1 mt-2 p-1.5 bg-red-100 border border-red-400 rounded-sm">

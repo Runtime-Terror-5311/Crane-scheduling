@@ -31,6 +31,8 @@ export interface Crane {
   currentColumn: number;
   status: CraneStatus;
   maintenanceNotes: string;
+  breakdownStartCol?: number;
+  breakdownEndCol?: number;
 }
 
 export interface CraneRequest {

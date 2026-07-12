@@ -115,6 +115,8 @@ export default function DashboardAdmin({
   const [craneMaxCol, setCraneMaxCol] = useState<number>(30);
   const [craneAllocMin, setCraneAllocMin] = useState<number | undefined>(undefined);
   const [craneAllocMax, setCraneAllocMax] = useState<number | undefined>(undefined);
+  const [craneBreakdownStartCol, setCraneBreakdownStartCol] = useState<number | undefined>(undefined);
+  const [craneBreakdownEndCol, setCraneBreakdownEndCol] = useState<number | undefined>(undefined);
 
   // Settings states
   const [bufferTime, setBufferTime] = useState<number>(settings.bufferTimeMinutes || 5);
@@ -275,6 +277,8 @@ export default function DashboardAdmin({
       maxColumn: Number(craneMaxCol),
       allocatedMinColumn: craneAllocMin !== undefined ? Number(craneAllocMin) : undefined,
       allocatedMaxColumn: craneAllocMax !== undefined ? Number(craneAllocMax) : undefined,
+      breakdownStartCol: craneStatus === "Breakdown" ? (craneBreakdownStartCol !== undefined ? craneBreakdownStartCol : Math.max(1, Number(craneCol) - 1)) : undefined,
+      breakdownEndCol: craneStatus === "Breakdown" ? (craneBreakdownEndCol !== undefined ? craneBreakdownEndCol : Math.min(30, Number(craneCol) + 1)) : undefined,
     });
     setEditingCraneId(null);
   };
@@ -291,6 +295,8 @@ export default function DashboardAdmin({
     setCraneMaxCol(crane.maxColumn);
     setCraneAllocMin(crane.allocatedMinColumn);
     setCraneAllocMax(crane.allocatedMaxColumn);
+    setCraneBreakdownStartCol(crane.breakdownStartCol);
+    setCraneBreakdownEndCol(crane.breakdownEndCol);
   };
 
   const handleCreateCraneSubmit = async (e: React.FormEvent) => {
@@ -879,7 +885,14 @@ export default function DashboardAdmin({
                       <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Status</label>
                       <select
                         value={craneStatus}
-                        onChange={(e) => setCraneStatus(e.target.value as any)}
+                        onChange={(e) => {
+                          const newStatus = e.target.value as any;
+                          setCraneStatus(newStatus);
+                          if (newStatus === "Breakdown") {
+                            setCraneBreakdownStartCol(Math.max(1, craneCol - 1));
+                            setCraneBreakdownEndCol(Math.min(30, craneCol + 1));
+                          }
+                        }}
                         className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-zinc-900 font-bold"
                       >
                         <option value="Available">Available</option>
@@ -888,6 +901,33 @@ export default function DashboardAdmin({
                         <option value="Breakdown">Breakdown</option>
                       </select>
                     </div>
+
+                    {craneStatus === "Breakdown" && (
+                      <div className="grid grid-cols-2 gap-2 bg-red-50 p-2.5 rounded-sm border-2 border-red-500">
+                        <div>
+                          <label className="block text-[9px] uppercase font-black text-red-600 mb-1">BD Start Col</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={craneBreakdownStartCol !== undefined ? craneBreakdownStartCol : Math.max(1, craneCol - 1)}
+                            onChange={(e) => setCraneBreakdownStartCol(Number(e.target.value))}
+                            className="w-full p-1.5 border-2 border-red-600 rounded-sm bg-white text-zinc-900 font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] uppercase font-black text-red-600 mb-1">BD End Col</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={craneBreakdownEndCol !== undefined ? craneBreakdownEndCol : Math.min(30, craneCol + 1)}
+                            onChange={(e) => setCraneBreakdownEndCol(Number(e.target.value))}
+                            className="w-full p-1.5 border-2 border-red-600 rounded-sm bg-white text-zinc-900 font-bold"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Maintenance Notes</label>

@@ -11,7 +11,8 @@ import {
   HardHat, 
   LogOut,
   Sliders,
-  Calendar
+  Calendar,
+  Cpu
 } from "lucide-react";
 import { User } from "../types";
 
@@ -19,8 +20,8 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   user: User;
-  activePage: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar";
-  setActivePage: (page: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar") => void;
+  activePage: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management";
+  setActivePage: (page: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management") => void;
   onLogout: () => void;
   selectedBay: string;
 }
@@ -65,6 +66,12 @@ export default function Sidebar({
       label: "Generate Requirements",
       description: "Log new crane requirements",
       icon: PlusCircle
+    },
+    {
+      id: "crane_management" as const,
+      label: "Manage Cranes",
+      description: "Configure limits & status",
+      icon: Cpu
     },
     {
       id: "calendar" as const,
@@ -113,7 +120,7 @@ export default function Sidebar({
                 </div>
                 <div>
                   <h2 className="text-sm font-black tracking-tighter text-white uppercase leading-none">
-                    CRANE-OPS <span className="text-amber-500">v2.4</span>
+                    CRANE-OPS <span className="text-amber-500">v1.00</span>
                   </h2>
                   <span className="text-[9px] font-mono text-zinc-500 uppercase font-bold tracking-wider">
                     Nav Console
@@ -186,9 +193,7 @@ export default function Sidebar({
                 Disconnect Terminal
               </button>
               
-              <div className="text-center text-[9px] text-zinc-600 font-bold uppercase tracking-wider">
-                BAY 01 • SHIFT GATEWAY
-              </div>
+             
             </div>
           </motion.div>
         </>
