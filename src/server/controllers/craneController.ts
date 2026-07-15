@@ -22,6 +22,53 @@ function isTimeWithinRange(currentTime: Date, startTimeStr: string, endTimeStr: 
   }
 }
 
+export function resolveAllCranesPositions(allCranes: Crane[], modifiedId?: string): void {
+  // Group cranes by bay (first character of ID)
+  const baysMap = new Map<string, Crane[]>();
+  for (const c of allCranes) {
+    const bay = c.id.charAt(0).toUpperCase();
+    if (!baysMap.has(bay)) {
+      baysMap.set(bay, []);
+    }
+    baysMap.get(bay)!.push(c);
+  }
+
+  for (const [bay, cranes] of baysMap.entries()) {
+    cranes.sort((a, b) => a.id.localeCompare(b.id));
+    if (cranes.length < 2) continue;
+
+    // We do multiple passes to make sure any ripple shift is resolved
+    let changed = true;
+    let passes = 0;
+    while (changed && passes < 10) {
+      changed = false;
+      passes++;
+
+      for (let i = 0; i < cranes.length - 1; i++) {
+        const left = cranes[i];
+        const right = cranes[i + 1];
+
+        if (left.currentColumn >= right.currentColumn) {
+          // Conflict! We need to shift them apart.
+          if (left.id === modifiedId) {
+            // We cannot shift left, so we must shift right!
+            right.currentColumn = Math.min(30, left.currentColumn + 1);
+            changed = true;
+          } else if (right.id === modifiedId) {
+            // We cannot shift right, so we must shift left!
+            left.currentColumn = Math.max(1, right.currentColumn - 1);
+            changed = true;
+          } else {
+            // Default shift left to left, right to right
+            left.currentColumn = Math.max(1, right.currentColumn - 1);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+}
+
 export const getCranes = (req: Request, res: Response): void => {
   const db = readDB();
   const now = new Date();
@@ -93,6 +140,8 @@ export const updateCrane = (req: Request, res: Response): void => {
   };
 
   db.cranes[craneIndex] = updatedCrane;
+  // Resolve physical positions to avoid crossing/collision alerts
+  resolveAllCranesPositions(db.cranes, updatedCrane.id);
   // Sort cranes alphabetically by ID to keep rail order preserved
   db.cranes.sort((a, b) => a.id.localeCompare(b.id));
   writeDB(db);
@@ -138,6 +187,8 @@ export const createCrane = (req: Request, res: Response): void => {
   };
 
   db.cranes.push(newCrane);
+  // Resolve physical positions to avoid crossing/collision alerts
+  resolveAllCranesPositions(db.cranes, newCrane.id);
   db.cranes.sort((a, b) => a.id.localeCompare(b.id));
   writeDB(db);
 

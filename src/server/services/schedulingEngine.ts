@@ -541,6 +541,79 @@ function scheduleRequestsInternal(
     }
   }
 
+  // Generic Auto-shift idle cranes to corners to avoid crossing/collision alerts by grouping cranes by bay
+  const baysMap = new Map<string, Crane[]>();
+  for (const crane of Object.values(workingCranes) as Crane[]) {
+    const bay = crane.id.charAt(0).toUpperCase();
+    if (!baysMap.has(bay)) {
+      baysMap.set(bay, []);
+    }
+    baysMap.get(bay)!.push(crane);
+  }
+
+  const getActiveRange = (cid: CraneId) => {
+    const tasks = craneSchedules[cid] || [];
+    if (tasks.length === 0) return null;
+    let minCol = 30;
+    let maxCol = 1;
+    for (const t of tasks) {
+      const start = t.startColumn !== undefined ? t.startColumn : t.column;
+      const end = t.endColumn !== undefined ? t.endColumn : t.column;
+      minCol = Math.min(minCol, start);
+      maxCol = Math.max(maxCol, end);
+    }
+    return { minCol, maxCol };
+  };
+
+  for (const [bay, cranesInBay] of baysMap.entries()) {
+    cranesInBay.sort((a, b) => a.id.localeCompare(b.id));
+    if (cranesInBay.length < 2) continue;
+
+    // We do multiple passes to make sure any multi-crane ripple shift resolves correctly
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (let i = 0; i < cranesInBay.length - 1; i++) {
+        const left = cranesInBay[i];
+        const right = cranesInBay[i + 1];
+
+        const rLeft = getActiveRange(left.id);
+        const rRight = getActiveRange(right.id);
+
+        const isBusyLeft = rLeft !== null;
+        const isBusyRight = rRight !== null;
+
+        // If left is busy, make sure right is to the right of left's active range
+        if (isBusyLeft && !isBusyRight && right.currentColumn <= rLeft.maxCol) {
+          right.currentColumn = Math.min(30, rLeft.maxCol + 1);
+          changed = true;
+        }
+
+        // If right is busy, make sure left is to the left of right's active range
+        if (isBusyRight && !isBusyLeft && left.currentColumn >= rRight.minCol) {
+          left.currentColumn = Math.max(1, rRight.minCol - 1);
+          changed = true;
+        }
+
+        // Ensure left is strictly left of right (physically)
+        if (left.currentColumn >= right.currentColumn) {
+          if (isBusyRight && !isBusyLeft) {
+            left.currentColumn = Math.max(1, right.currentColumn - 1);
+          } else if (isBusyLeft && !isBusyRight) {
+            right.currentColumn = Math.min(30, left.currentColumn + 1);
+          } else {
+            // Both idle or both busy. Space them out preserving order.
+            left.currentColumn = Math.max(1, right.currentColumn - 1);
+            if (left.currentColumn >= right.currentColumn) {
+              right.currentColumn = Math.min(30, left.currentColumn + 1);
+            }
+          }
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+  }
+
   return {
     schedules,
     updatedCranes: Object.values(workingCranes),

@@ -394,7 +394,10 @@ export default function DashboardSupervisor({
 
     // Validate times
     const startMins = parseTimeToMins(startTime);
-    const endMins = parseTimeToMins(endTime);
+    let endMins = parseTimeToMins(endTime);
+    if (shift === "Shift C" && endMins <= startMins) {
+      endMins += 24 * 60;
+    }
     if (endMins <= startMins) {
       setFormError("Estimated End Time must be strictly after Start Time.");
       return;
@@ -678,11 +681,15 @@ export default function DashboardSupervisor({
                             )}
 
                             {/* Row Deletion Action */}
-                            {req.status === "Draft" && allowed && (
+                            {(req.status === "Draft" || req.status === "Submitted") && allowed && (
                               <button
-                                onClick={() => onRequestDeleted(req.id)}
+                                onClick={() => {
+                                  if (window.confirm(`Are you sure you want to delete this operation (${req.id})?`)) {
+                                    onRequestDeleted(req.id);
+                                  }
+                                }}
                                 className="absolute top-2 right-2 text-zinc-400 hover:text-red-600 transition-colors p-1 cursor-pointer"
-                                title="Delete Draft"
+                                title="Delete Operation"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>

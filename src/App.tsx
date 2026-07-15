@@ -574,7 +574,7 @@ export default function App() {
   }
 
   return (
-    <div id="full_app_layout" className="min-h-screen flex flex-col bg-[#E4E3E0] text-[#141414] font-sans selection:bg-amber-500/20">
+    <div id="full_app_layout" className="min-h-screen flex flex-col bg-transparent text-[#141414] font-sans selection:bg-amber-500/20">
       
       {/* Sliding Sidebar Menu */}
       <Sidebar

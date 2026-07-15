@@ -38,6 +38,7 @@ export let cachedState: DatabaseState | null = null;
 export let isMongoConnected = false;
 export let mongoDb: Db | null = null;
 export let isDirty = false;
+export let lastRefreshTime = 0;
 
 class AsyncLock {
   private promise: Promise<void> = Promise.resolve();
@@ -152,6 +153,7 @@ export const refreshStateFromMongo = async (): Promise<void> => {
       }
     }
     isDirty = false;
+    lastRefreshTime = Date.now();
     return;
   }
 
@@ -212,6 +214,7 @@ export const refreshStateFromMongo = async (): Promise<void> => {
     };
 
     isDirty = false;
+    lastRefreshTime = Date.now();
     console.log(`Directly fetched MongoDB data in parallel: ${users.length} users, ${cranes.length} cranes, ${requests.length} requests.`);
   } catch (err: any) {
     console.error("Failed to fetch state from MongoDB collections:", err);
@@ -377,7 +380,10 @@ export const databaseLockMiddleware = async (req: any, res: any, next: any): Pro
 
   try {
     if (isMongoConnected) {
-      await refreshStateFromMongo();
+      const now = Date.now();
+      if (!cachedState || now - lastRefreshTime > 5000) {
+        await refreshStateFromMongo();
+      }
     } else {
       if (!cachedState) {
         await initLocalDB();

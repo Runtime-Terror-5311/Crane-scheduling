@@ -150,7 +150,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   };
 
   return (
-    <div id="login_container" className="min-h-screen flex items-center justify-center bg-[#E4E3E0] px-4 py-12 relative overflow-hidden font-sans industrial-grid">
+    <div id="login_container" className="min-h-screen flex items-center justify-center bg-transparent px-4 py-12 relative overflow-hidden font-sans industrial-grid">
       <div className="w-full max-w-md bg-white border-4 border-[#141414] shadow-[8px_8px_0px_#141414] p-8 z-10 rounded-sm">
         <div className="flex flex-col items-center mb-8 border-b-2 border-zinc-200 pb-6">
           <div className="p-3 bg-amber-500 text-white border-2 border-[#141414] rounded-sm mb-3 shadow-[3px_3px_0px_#141414]">
@@ -203,15 +203,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 Operator Badge ID
               </label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#141414]">
-                  <Shield className="w-4 h-4" />
-                </span>
                 <input
                   type="text"
                   value={employeeId}
                   onChange={(e) => setEmployeeId(e.target.value)}
                   placeholder="e.g. EMP101"
-                  className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
+                  className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
                   disabled={loading}
                 />
               </div>
@@ -237,15 +234,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 </button>
               </div>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#141414]">
-                  <Key className="w-4 h-4" />
-                </span>
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-10 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
+                  className="w-full px-4 pr-10 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
                   disabled={loading}
                 />
                 <button
@@ -286,15 +280,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     Provide the email address linked to your terminal account.
                   </p>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#141414]">
-                      <Mail className="w-4 h-4" />
-                    </span>
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="e.g. admin@crane-ops.com"
-                      className="w-full pl-10 pr-4 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
+                      className="w-full px-4 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
                       disabled={loading}
                     />
                   </div>
@@ -341,15 +332,12 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     New Security Authorization Key
                   </label>
                   <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-[#141414]">
-                      <Key className="w-4 h-4" />
-                    </span>
                     <input
                       type={showNewPassword ? "text" : "password"}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Minimum 6 characters"
-                      className="w-full pl-10 pr-10 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
+                      className="w-full px-4 pr-10 py-2.5 bg-zinc-50 border-2 border-[#141414] text-[#141414] text-sm font-mono placeholder:text-zinc-400 focus:outline-none focus:bg-white transition-colors"
                       disabled={loading}
                     />
                     <button

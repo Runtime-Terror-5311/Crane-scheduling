@@ -8,15 +8,151 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: #E4E3E0; /* Warm industrial off-white background */
-  color: #141414; /* Heavy industrial ink */
+  background-color: #f3f4f6; /* Premium soft canvas background */
+  /* Elegant ambient mesh gradient that enhances the glassmorphism frosting */
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(219, 234, 254, 0.65) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(253, 243, 199, 0.55) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(167, 139, 250, 0.18) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(147, 197, 253, 0.15) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(254, 205, 211, 0.22) 0px, transparent 50%);
+  background-attachment: fixed;
+  color: #1a1a1e;
+  min-height: 100vh;
 }
 
-/* Industrial Grid overlay pattern */
+/* Glassmorphism utility overrides */
+
+/* Overriding sharp corners globally for a sleek, modern, softened appearance */
+.rounded-sm, .rounded-none, .rounded-md {
+  border-radius: 12px !important;
+}
+.rounded-lg, .rounded-xl {
+  border-radius: 16px !important;
+}
+
+/* Base Glassmorphism Container Class overrides */
+#login_container > div,
+#bay_selector_panel,
+#timetable_page > div,
+#bay_visualization_page > div,
+#gantt_chart_page > div,
+#generate_requirements_page > div,
+#crane_management_page > div,
+#admin_panel_page > div,
+#calendar_page > div,
+.bg-white {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+  backdrop-filter: blur(16px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  border-radius: 20px !important;
+  box-shadow: 
+    0 10px 30px -5px rgba(0, 0, 0, 0.04),
+    0 1px 3px 0 rgba(0, 0, 0, 0.01),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.75) !important;
+}
+
+/* Style Glassmorphism Inputs and Select fields with translucent frost */
+input, select, textarea {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 10px !important;
+  padding: 0.5rem 0.75rem !important;
+  color: #1a1a1e !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+input:focus, select:focus, textarea:focus {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #f59e0b !important; /* Amber brand theme focus */
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18) !important;
+  outline: none !important;
+}
+
+/* Beautiful Rounded Buttons with Micro-interactions */
+button {
+  border-radius: 10px !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Style list items, table rows to have glass rounded borders */
+.bg-zinc-50 {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: blur(8px) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+}
+
+/* General border-color and border-width softening */
+[class*="border-[#141414]"],
+[class*="border-zinc-800"],
+[class*="border-zinc-700"],
+[class*="border-zinc-300"],
+[class*="border-zinc-200"],
+.border-4, .border-2, .border {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  border-width: 1px !important;
+}
+
+/* Soften table headers and layout borders */
+.border-b-2, .border-b {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Intercept arbitrary sharp box-shadows used in brutalist theme and convert to soft, elegant shadows */
+[class*="shadow-["],
+.shadow-md,
+.shadow-lg {
+  box-shadow: 
+    0 12px 32px -6px rgba(0, 0, 0, 0.06),
+    0 4px 12px -2px rgba(0, 0, 0, 0.03),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Navigation bar and Top Header */
+header {
+  background-color: rgba(15, 23, 42, 0.75) !important; /* Soft translucent dark slate header */
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 0px 0px 20px 20px !important;
+  margin-bottom: 1rem;
+}
+
+/* Header bottom-border fallback */
+header.bg-zinc-900 {
+  border-bottom-width: 1px !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Slide Out Sidebar styling using dark translucent glass */
+#sidebar_panel {
+  background-color: rgba(9, 9, 11, 0.8) !important; /* Translucent zinc-950 */
+  backdrop-filter: blur(24px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(120%) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 20px 0 50px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Inside container cards styled for dark areas */
+#sidebar_panel .bg-zinc-900,
+#sidebar_panel .bg-zinc-950 {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 12px !important;
+}
+
+/* Industrial Grid overlay pattern made extremely subtle */
 .industrial-grid {
-  background-image: linear-gradient(rgba(20, 20, 20, 0.05) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(20, 20, 20, 0.05) 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(rgba(20, 20, 20, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 20, 20, 0.015) 1px, transparent 1px) !important;
+  background-size: 24px 24px !important;
 }
 
 /* Status LEDs */
@@ -27,31 +163,33 @@ body {
   display: inline-block;
 }
 .led-green {
-  background: #22C55E;
-  box-shadow: 0 0 6px #22C55E;
+  background: #10B981;
+  box-shadow: 0 0 8px #10B981;
 }
 .led-red {
   background: #EF4444;
-  box-shadow: 0 0 6px #EF4444;
+  box-shadow: 0 0 8px #EF4444;
 }
 .led-orange {
   background: #F59E0B;
-  box-shadow: 0 0 6px #F59E0B;
+  box-shadow: 0 0 8px #F59E0B;
 }
 
-/* Crane Box shape matching design instructions */
+/* Crane Box shape matching design instructions with curved clipping if possible */
 .crane-box-shape {
-  clip-path: polygon(10% 0, 90% 0, 100% 20%, 100% 100%, 0 100%, 0 20%);
+  clip-path: polygon(8% 0, 92% 0, 100% 18%, 100% 100%, 0 100%, 0 18%);
 }
 
 /* Print layout overrides for industrial shift reports */
 @media print {
   body {
     background-color: white !important;
+    background-image: none !important;
     color: black !important;
   }
   .no-print {
     display: none !important;
   }
 }
+
 

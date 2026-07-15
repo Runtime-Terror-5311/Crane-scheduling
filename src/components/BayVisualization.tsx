@@ -51,16 +51,49 @@ export default function BayVisualization({
     });
   }, [cranes, selectedCraneFilter]);
 
-  // Check if there are any physical position conflicts dynamically based on sorted crane IDs on the runway track
-  const sortedCranes = [...visibleCranes].sort((a, b) => a.id.localeCompare(b.id));
-  const conflicts: string[] = [];
-  for (let i = 0; i < sortedCranes.length - 1; i++) {
-    const leftCrane = sortedCranes[i];
-    const rightCrane = sortedCranes[i + 1];
-    if (leftCrane.currentColumn >= rightCrane.currentColumn) {
-      conflicts.push(`CRITICAL COLLISION RISK: Crane ${leftCrane.name || leftCrane.id} (Col ${leftCrane.currentColumn}) has crossed or blocked Crane ${rightCrane.name || rightCrane.id} (Col ${rightCrane.currentColumn})!`);
+  // Dynamic non-overlapping adjustment of positions in the visualization so cranes never cross or overlap visually
+  const renderedCranes = useMemo(() => {
+    // Clone visibleCranes
+    const list = visibleCranes.map(c => ({ ...c }));
+    
+    // Group by bay (first character of crane ID)
+    const baysMap = new Map<string, typeof list>();
+    for (const c of list) {
+      const bay = c.id.charAt(0).toUpperCase();
+      if (!baysMap.has(bay)) {
+        baysMap.set(bay, []);
+      }
+      baysMap.get(bay)!.push(c);
     }
-  }
+
+    for (const [_, cranesInBay] of baysMap.entries()) {
+      cranesInBay.sort((a, b) => a.id.localeCompare(b.id));
+      if (cranesInBay.length < 2) continue;
+
+      let changed = true;
+      let passes = 0;
+      while (changed && passes < 10) {
+        changed = false;
+        passes++;
+        for (let i = 0; i < cranesInBay.length - 1; i++) {
+          const left = cranesInBay[i];
+          const right = cranesInBay[i + 1];
+          if (left.currentColumn >= right.currentColumn) {
+            // Adjust so left is always strictly left of right
+            left.currentColumn = Math.max(1, right.currentColumn - 1);
+            if (left.currentColumn >= right.currentColumn) {
+              right.currentColumn = Math.min(30, left.currentColumn + 1);
+            }
+            changed = true;
+          }
+        }
+      }
+    }
+
+    return list;
+  }, [visibleCranes]);
+
+  const conflicts: string[] = [];
 
   // Find active or upcoming schedule for each crane to show what they are working on
   const getActiveJobDesc = (craneId: string) => {
@@ -138,7 +171,7 @@ export default function BayVisualization({
 
           {/* Live Crane Carriages Overlay (Vertical) */}
           <div className="relative flex-grow h-full min-h-[460px]">
-            {visibleCranes.map((crane) => {
+            {renderedCranes.map((crane) => {
               // Percentage from top (Col 1 at top, Col 30 at bottom)
               const percentage = ((crane.currentColumn - 1) / 29) * 100;
               
@@ -214,7 +247,7 @@ export default function BayVisualization({
 
         {/* Crane Health Details Summary Cards */}
         <div className="mt-4 space-y-3">
-          {visibleCranes.map((crane) => {
+          {renderedCranes.map((crane) => {
             const isBusy = schedules.some((s) => {
               if (s.assignedCrane !== crane.id && s.secondaryCrane !== crane.id) return false;
               if (s.status === "Completed") return false;
@@ -366,7 +399,7 @@ export default function BayVisualization({
 
         {/* Live Crane Carriages Overlay */}
         <div className="relative h-16">
-          {visibleCranes.map((crane) => {
+          {renderedCranes.map((crane) => {
             const percentage = ((crane.currentColumn - 0.5) / 30) * 100;
             
             const isBusy = schedules.some((s) => {
@@ -485,7 +518,7 @@ export default function BayVisualization({
 
       {/* Crane Health & Active Load Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
-        {visibleCranes.map((crane) => {
+        {renderedCranes.map((crane) => {
           const isBusy = schedules.some((s) => {
             if (s.assignedCrane !== crane.id && s.secondaryCrane !== crane.id) return false;
             if (s.status === "Completed") return false;

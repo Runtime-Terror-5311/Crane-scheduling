@@ -58,6 +58,13 @@ function verifyShiftBoundary(startTimeStr: string, endTimeStr: string, shift: Sh
     const normStart = sMins < 12 * 60 ? sMins + 24 * 60 : sMins;
     const normEnd = eMins < 12 * 60 ? eMins + 24 * 60 : eMins;
     
+    if (normEnd <= normStart) {
+      return {
+        isValid: false,
+        message: "Estimated end time must be strictly after start time.",
+      };
+    }
+    
     if (normStart < wStart || normEnd > wEnd) {
       return {
         isValid: false,
@@ -334,11 +341,11 @@ export const deleteRequest = (req: Request, res: Response): void => {
         });
         return;
       }
-      if (existingReq.status !== "Draft") {
+      if (existingReq.status !== "Draft" && existingReq.status !== "Submitted") {
         res.status(403).json({
           error: "Forbidden",
-          detail: "Cannot delete submitted requests.",
-          code: "REQUEST_NOT_DRAFT"
+          detail: "Cannot delete requests that are already scheduled or completed.",
+          code: "REQUEST_NOT_DRAFT_OR_SUBMITTED"
         });
         return;
       }
