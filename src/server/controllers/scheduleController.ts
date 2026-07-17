@@ -98,7 +98,8 @@ export const generateSchedule = (req: Request, res: Response): void => {
       const endColumn = r.endColumn !== undefined ? Number(r.endColumn) : (r.column !== undefined ? Number(r.column) : 1);
       const isTandemLift = r.isTandemLift !== undefined ? Boolean(r.isTandemLift) : false;
       const mandatoryCrane = r.mandatoryCrane || "Any";
-      const status = r.status || "Submitted";
+      // Auto-submit draft requests when generating schedule
+      const status = (r.status === "Draft" || !r.status) ? "Submitted" : r.status;
       return {
         ...r,
         shift,

@@ -12,7 +12,8 @@ import {
   LogOut,
   Sliders,
   Calendar,
-  Cpu
+  Cpu,
+  Database
 } from "lucide-react";
 import { User } from "../types";
 

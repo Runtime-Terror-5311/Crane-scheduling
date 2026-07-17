@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar } from "lucide-react";
+import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { CraneRequest, User, ShiftType, PriorityType, Crane } from "../types";
 import { getCurrentShift, getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
 
@@ -11,7 +11,7 @@ interface DashboardSupervisorProps {
   onRequestDeleted: (id: string) => void;
   onRequestSubmittedBulk: (area: number) => void;
   onRefresh: () => void;
-  initialSubView?: "logboards" | "new-request" | "cranes";
+  initialSubView?: "logboards" | "new-request" | "cranes" | "verification" | "jobs-progress" | "report-jobs";
   onUpdateCrane?: (craneId: string, updatedFields: Partial<Crane>) => void;
   onCreateCrane?: (craneData: any) => Promise<boolean>;
   onDeleteCrane?: (craneId: string) => void;
@@ -30,14 +30,18 @@ export default function DashboardSupervisor({
   onCreateCrane,
   onDeleteCrane,
 }: DashboardSupervisorProps) {
-  // Navigation sub-views: "logboards" vs "new-request" vs "cranes"
-  const [currentSubView, setCurrentSubView] = useState<"logboards" | "new-request" | "cranes">(
-    initialSubView || "logboards"
+  // Navigation sub-views: "logboards" vs "new-request" vs "cranes" vs "verification" vs "jobs-progress" vs "report-jobs"
+  const [currentSubView, setCurrentSubView] = useState<"logboards" | "new-request" | "cranes" | "verification" | "jobs-progress" | "report-jobs">(
+    initialSubView === "verification" ? "report-jobs" : (initialSubView || "logboards")
   );
   
   useEffect(() => {
     if (initialSubView) {
-      setCurrentSubView(initialSubView);
+      if (initialSubView === "verification") {
+        setCurrentSubView("report-jobs");
+      } else {
+        setCurrentSubView(initialSubView);
+      }
     }
   }, [initialSubView]);
 
@@ -332,9 +336,14 @@ export default function DashboardSupervisor({
   const [weight, setWeight] = useState<number>(5);
   const [priority, setPriority] = useState<PriorityType>("P3");
   const [remarks, setRemarks] = useState("");
+  const [details, setDetails] = useState("");
   const [mandatoryCrane, setMandatoryCrane] = useState<string>("Any");
   const [formError, setFormError] = useState("");
   const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [jobType, setJobType] = useState<"New" | "Continuation">("New");
+  const [parentJobId, setParentJobId] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [showSuccessPopup, setShowSuccessPopup] = useState<boolean>(false);
 
   useEffect(() => {
     const forcedShift = getForcedShiftForWindow(currentTime);
@@ -369,6 +378,7 @@ export default function DashboardSupervisor({
 
   const handleAddOperationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setFormError("");
 
     if (!isWindowOpen) {
@@ -408,6 +418,12 @@ export default function DashboardSupervisor({
       return;
     }
 
+    if (!details.trim()) {
+      setFormError("Shift work details is a required field. Please specify precisely what will be done.");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const response = await fetch("/api/requests", {
         method: "POST",
@@ -428,8 +444,12 @@ export default function DashboardSupervisor({
           estimatedWeight: weight,
           priority,
           remarks,
+          details,
           mandatoryCrane,
           date,
+          jobType,
+          parentJobId: jobType === "Continuation" ? parentJobId : undefined,
+          status: "Submitted", // Save directly as Submitted so there's no Draft step
         }),
       });
 
@@ -442,11 +462,16 @@ export default function DashboardSupervisor({
       // Reset form
       setDepartment("");
       setRemarks("");
+      setDetails("");
       setMandatoryCrane("Any");
+      setJobType("New");
+      setParentJobId("");
       setFormError("");
-      setCurrentSubView("logboards");
+      setShowSuccessPopup(true);
     } catch (err: any) {
       setFormError(err.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -466,6 +491,41 @@ export default function DashboardSupervisor({
 
   return (
     <div id="supervisor_dashboard" className="space-y-8 font-sans">
+      {/* Loading Overlay Window */}
+      {isSubmitting && (
+        <div className="fixed inset-0 bg-[#141414]/30 backdrop-blur-md flex items-center justify-center z-50">
+          <div className="flex flex-col items-center justify-center space-y-2 p-4 bg-white/10 border-2 border-[#141414]/20 rounded-lg shadow-xl">
+            <RefreshCw className="w-12 h-12 text-amber-500 animate-spin drop-shadow-[0_2px_8px_rgba(245,158,11,0.5)]" />
+          </div>
+        </div>
+      )}
+
+      {/* Submitted Successfully Popup */}
+      {showSuccessPopup && (
+        <div className="fixed inset-0 bg-[#141414]/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border-4 border-[#141414] p-8 max-w-sm w-full shadow-[8px_8px_0px_#141414] text-center space-y-5 rounded-sm">
+            <div className="w-16 h-16 bg-emerald-100 border-2 border-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-sm">
+              <CheckCircle2 className="w-10 h-10 text-emerald-600" />
+            </div>
+            <div>
+              <h4 className="font-mono text-sm font-black uppercase tracking-wider text-[#141414]">Submitted Successfully</h4>
+              <p className="text-[11px] text-zinc-500 font-mono mt-2 font-bold uppercase tracking-tight">
+                Operation Requirement Registered & Submitted
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSuccessPopup(false);
+                setCurrentSubView("logboards");
+              }}
+              className="w-full py-2.5 bg-[#141414] hover:bg-zinc-800 text-white font-black uppercase text-xs tracking-wider border-2 border-[#141414] shadow-[4px_4px_0px_rgba(0,0,0,0.15)] rounded-sm cursor-pointer active:translate-y-[2px] active:shadow-[2px_2px_0px_rgba(0,0,0,0.15)]"
+            >
+              Proceed to Logboards
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Title & Top Action Bar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between border-b-2 border-[#141414] pb-4 gap-4">
@@ -479,11 +539,11 @@ export default function DashboardSupervisor({
           </p>
         </div>
         
-        <div className="flex items-center gap-2 self-start md:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
           {/* Main Subview Navigation Toggles */}
           <button
             onClick={() => setCurrentSubView("logboards")}
-            className={`flex items-center gap-1.5 text-xs px-4 py-2 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] font-black uppercase tracking-wider rounded-sm transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 text-xs px-3 py-2 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] font-black uppercase tracking-wider rounded-sm transition-all cursor-pointer ${
               currentSubView === "logboards"
                 ? "bg-[#141414] text-white"
                 : "bg-white text-[#141414] hover:bg-zinc-50"
@@ -499,7 +559,7 @@ export default function DashboardSupervisor({
               setFormError("");
               setCurrentSubView("new-request");
             }}
-            className={`flex items-center gap-1.5 text-xs px-4 py-2 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] font-black uppercase tracking-wider rounded-sm transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 text-xs px-3 py-2 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] font-black uppercase tracking-wider rounded-sm transition-all cursor-pointer ${
               currentSubView === "new-request"
                 ? "bg-amber-500 text-slate-950"
                 : "bg-white text-[#141414] hover:bg-zinc-50"
@@ -507,6 +567,34 @@ export default function DashboardSupervisor({
           >
             <Plus className="w-4 h-4" />
             New Requirement Form
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentSubView("jobs-progress");
+            }}
+            className={`flex items-center gap-1.5 text-xs px-3 py-2 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] font-black uppercase tracking-wider rounded-sm transition-all cursor-pointer ${
+              currentSubView === "jobs-progress"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-[#141414] hover:bg-zinc-50"
+            }`}
+          >
+            <Eye className="w-4 h-4" />
+            Active Jobs Progress
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentSubView("report-jobs");
+            }}
+            className={`flex items-center gap-1.5 text-xs px-3 py-2 border-2 border-[#141414] shadow-[3px_3px_0px_#141414] font-black uppercase tracking-wider rounded-sm transition-all cursor-pointer ${
+              currentSubView === "report-jobs"
+                ? "bg-emerald-600 text-white"
+                : "bg-white text-[#141414] hover:bg-zinc-50"
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Report My Area Jobs
           </button>
         </div>
       </div>
@@ -615,7 +703,7 @@ export default function DashboardSupervisor({
                         Area {areaNum} Panel (Cols {areaNum === 1 ? "1-10" : areaNum === 2 ? "11-20" : "21-30"})
                       </h3>
                       <div className="text-[10px] text-zinc-500 font-mono mt-0.5 font-bold">
-                        {drafts.length} Drafts | {submitted.length} Sent | {scheduled.length} Active
+                        {drafts.length > 0 ? `${drafts.length} Draft | ` : ""}{submitted.length} Pending Scheduling | {scheduled.length} Scheduled Allotted
                       </div>
                     </div>
 
@@ -672,10 +760,31 @@ export default function DashboardSupervisor({
                               <div>Time: <span className="text-zinc-900 font-black">{req.estimatedStartTime}-{req.estimatedEndTime}</span></div>
                               <div>Load: <span className="text-zinc-900 font-black">{req.estimatedWeight} Ton</span></div>
                               <div className="col-span-2">Gantry: <span className="text-amber-800 font-black">{req.mandatoryCrane}</span></div>
+                              {req.completionPercentage !== undefined && (
+                                <div className="col-span-2 flex items-center gap-2 mt-1">
+                                  <span className="text-zinc-500 uppercase text-[8px] font-black font-mono">Progress:</span>
+                                  <div className="flex-1 bg-zinc-200 h-2 rounded-sm overflow-hidden border border-zinc-300">
+                                    <div className="bg-emerald-500 h-full" style={{ width: `${req.completionPercentage}%` }}></div>
+                                  </div>
+                                  <span className="text-emerald-700 font-black text-[9px] font-mono">{req.completionPercentage}%</span>
+                                </div>
+                              )}
+                              {req.jobType === "Continuation" && (
+                                <div className="col-span-2 text-[9px] bg-amber-50 text-amber-900 border border-amber-300 rounded px-1.5 py-0.5 font-bold font-mono inline-block w-fit mt-1">
+                                  Continuation of {req.parentJobId}
+                                </div>
+                              )}
                             </div>
 
+                            {req.details && (
+                              <div className="text-[10px] text-zinc-900 bg-zinc-100/80 border border-zinc-200/80 p-1.5 rounded mt-1.5 font-sans font-black">
+                                <span className="uppercase text-[8px] font-mono tracking-wider font-bold text-zinc-500 block mb-0.5">Work Details:</span>
+                                {req.details}
+                              </div>
+                            )}
+
                             {req.remarks && (
-                              <div className="text-[10px] text-zinc-600 italic mt-0.5 border-t border-zinc-200 pt-1 font-sans font-bold">
+                              <div className="text-[10px] text-zinc-600 italic mt-1 border-t border-zinc-200 pt-1 font-sans font-bold">
                                 "{req.remarks}"
                               </div>
                             )}
@@ -771,7 +880,7 @@ export default function DashboardSupervisor({
               Register New Crane Operation Requirement
             </h3>
             <p className="text-[11px] text-zinc-500 font-mono mt-1 font-bold">
-              Complete all fields to queue draft. It will appear on your Area Logboard to review and bulk submit.
+              Complete all fields to register the crane operation requirement. It will be submitted and queued for scheduling immediately.
             </p>
           </div>
 
@@ -794,6 +903,69 @@ export default function DashboardSupervisor({
                   <span>{formError}</span>
                 </div>
               )}
+
+              {/* Job Continuity Selection System */}
+              <div className="bg-amber-50 border-2 border-amber-500 p-4 rounded-sm space-y-3.5">
+                <div className="flex items-center gap-2 border-b border-amber-200 pb-2">
+                  <span className="p-1 bg-amber-200 rounded-sm text-amber-950 font-mono text-[9px] font-black uppercase">continuity check</span>
+                  <span className="text-amber-950 uppercase tracking-tight text-[11px] font-black font-mono">Job Continuity Identifier</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-amber-900 mb-1.5">Requirement Registry Mode</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-1.5 cursor-pointer font-bold font-sans text-xs text-amber-950">
+                        <input
+                          type="radio"
+                          name="jobType"
+                          value="New"
+                          checked={jobType === "New"}
+                          onChange={() => {
+                            setJobType("New");
+                            setParentJobId("");
+                          }}
+                          className="accent-[#141414] w-4 h-4 cursor-pointer"
+                        />
+                        <span>New Standalone Job</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer font-bold font-sans text-xs text-amber-950">
+                        <input
+                          type="radio"
+                          name="jobType"
+                          value="Continuation"
+                          checked={jobType === "Continuation"}
+                          onChange={() => setJobType("Continuation")}
+                          className="accent-[#141414] w-4 h-4 cursor-pointer"
+                        />
+                        <span>Continuation of Existing Job</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {jobType === "Continuation" && (
+                    <div>
+                      <label className="block text-[10px] uppercase font-mono font-black text-amber-900 mb-1.5">Select Original/Parent Job</label>
+                      <select
+                        required={jobType === "Continuation"}
+                        value={parentJobId}
+                        onChange={(e) => {
+                          const pId = e.target.value;
+                          setParentJobId(pId);
+                        }}
+                        className="w-full p-2 bg-white border-2 border-amber-600 rounded-sm text-zinc-900 font-bold font-mono text-xs"
+                      >
+                        <option value="">-- Choose active or previous job --</option>
+                        {requests.filter(r => r.id && !r.id.includes("-CONT-")).map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.id} - {r.department} (Cols {r.startColumn}-{r.endColumn})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Form Area Selection Row */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1079,6 +1251,20 @@ export default function DashboardSupervisor({
                 </div>
               </div>
 
+              {/* Shift Details Box */}
+              <div>
+                <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                  Details of Shift Work (Precisely what will be done in this shift) <span className="text-red-500 font-sans">*</span>
+                </label>
+                <textarea
+                  required
+                  placeholder="Mention precisely what will be done (e.g., welding of this part, assembly of main stator, machining of rotor body, etc.)"
+                  value={details}
+                  onChange={(e) => setDetails(e.target.value)}
+                  className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800 focus:outline-none"
+                />
+              </div>
+
               {/* Remarks Box */}
               <div>
                 <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Special Instruction Notes / Hoisting Objectives</label>
@@ -1094,17 +1280,23 @@ export default function DashboardSupervisor({
               <div className="flex gap-3 justify-end pt-4 border-t-2 border-zinc-100 font-sans">
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => setCurrentSubView("logboards")}
-                  className="px-6 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-[#141414] border-2 border-zinc-400 font-black rounded-sm uppercase cursor-pointer"
+                  className={`px-6 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-[#141414] border-2 border-zinc-400 font-black rounded-sm uppercase cursor-pointer ${
+                    isSubmitting ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
                 >
                   Back to Logboards
                 </button>
                 
                 <button
                   type="submit"
-                  className="px-8 py-2.5 bg-[#141414] hover:bg-zinc-800 text-white border-4 border-[#141414] shadow-[4px_4px_0px_#141414] font-black rounded-sm uppercase tracking-wider cursor-pointer active:translate-y-[2px] active:shadow-[2px_2px_0px_#141414]"
+                  disabled={isSubmitting}
+                  className={`px-8 py-2.5 bg-[#141414] hover:bg-zinc-800 text-white border-4 border-[#141414] shadow-[4px_4px_0px_#141414] font-black rounded-sm uppercase tracking-wider cursor-pointer active:translate-y-[2px] active:shadow-[2px_2px_0px_#141414] ${
+                    isSubmitting ? "opacity-75 cursor-not-allowed" : ""
+                  }`}
                 >
-                  Create Draft Requirement
+                  {isSubmitting ? "Processing Requirement..." : "Create & Submit Requirement"}
                 </button>
               </div>
             </form>
@@ -1112,6 +1304,381 @@ export default function DashboardSupervisor({
         </div>
       )}
 
+      {/* SUB-VIEW 4: Active Jobs Progress (See all jobs being done) */}
+      {currentSubView === "jobs-progress" && (
+        <div className="max-w-4xl mx-auto bg-white border-4 border-[#141414] p-8 shadow-[6px_6px_0px_#141414] relative overflow-hidden font-sans">
+          <div className="absolute top-0 left-0 right-0 h-2 bg-blue-500"></div>
+
+          <div className="border-b-2 border-zinc-200 pb-4 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-md font-black uppercase tracking-tight text-[#141414] flex items-center gap-2">
+                <Eye className="w-5 h-5 text-blue-600" />
+                Active Shift Jobs & Live Progress
+              </h3>
+              <p className="text-[11px] text-zinc-500 font-mono mt-1 font-bold">
+                Live monitoring console of all active and scheduled operations for the current shift across all terminal areas.
+              </p>
+            </div>
+            
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 border-2 border-[#141414] text-[#141414] font-black uppercase tracking-wider text-[10px] rounded-sm shadow-[2px_2px_0px_#141414] cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Sync Data
+            </button>
+          </div>
+
+          {/* Live Progress KPIs */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 font-mono text-xs">
+            <div className="bg-blue-50 border-2 border-blue-400 p-4 rounded-sm shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+              <div className="text-[9px] font-black uppercase text-blue-800 font-bold">Total Shift Tasks</div>
+              <div className="text-2xl font-black text-blue-950 mt-1">
+                {requests.filter(r => r.shift === getCurrentShift(currentTime)).length}
+              </div>
+              <div className="text-[10px] text-blue-700 mt-1 font-sans font-semibold">Total jobs registered in {getCurrentShift(currentTime)}.</div>
+            </div>
+
+            <div className="bg-emerald-50 border-2 border-emerald-400 p-4 rounded-sm shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+              <div className="text-[9px] font-black uppercase text-emerald-800 font-bold">Completed Jobs</div>
+              <div className="text-2xl font-black text-emerald-950 mt-1">
+                {requests.filter(r => r.shift === getCurrentShift(currentTime) && (r.completionPercentage === 100 || r.status === "Completed")).length}
+              </div>
+              <div className="text-[10px] text-emerald-700 mt-1 font-sans font-semibold">Jobs reported at 100% completion.</div>
+            </div>
+
+            <div className="bg-amber-50 border-2 border-amber-400 p-4 rounded-sm shadow-[2px_2px_0px_rgba(0,0,0,0.05)]">
+              <div className="text-[9px] font-black uppercase text-amber-800 font-bold">In-Progress / Scheduled</div>
+              <div className="text-2xl font-black text-amber-950 mt-1">
+                {requests.filter(r => r.shift === getCurrentShift(currentTime) && r.status !== "Draft" && (r.completionPercentage ?? 0) < 100).length}
+              </div>
+              <div className="text-[10px] text-amber-700 mt-1 font-sans font-semibold">Operations active and running.</div>
+            </div>
+          </div>
+
+          {/* Active Jobs List */}
+          <div className="space-y-4">
+            <h4 className="text-xs uppercase font-black text-zinc-500 font-mono tracking-wider border-b pb-1">
+              Terminal-Wide Active Shift Jobs ({getCurrentShift(currentTime)})
+            </h4>
+
+            {(() => {
+              const activeShiftJobs = requests.filter(r => r.shift === getCurrentShift(currentTime) && r.status !== "Draft");
+              if (activeShiftJobs.length === 0) {
+                return (
+                  <div className="py-16 border-2 border-dashed border-zinc-300 rounded-sm text-center text-zinc-400 text-xs bg-zinc-50 font-mono">
+                    <ClipboardList className="w-8 h-8 mx-auto mb-2 text-zinc-300" />
+                    No active/scheduled jobs reported on shift {getCurrentShift(currentTime)} yet.
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-3">
+                  {activeShiftJobs.map((req) => (
+                    <div key={req.id} className="p-4 border-2 border-[#141414] rounded-sm bg-zinc-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono text-xs">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-sm text-[#141414]">{req.id}</span>
+                          <span className="text-[10px] bg-zinc-200 border border-zinc-300 px-1.5 py-0.5 rounded-sm font-black uppercase">
+                            Area {req.area}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-sm font-black uppercase border ${
+                            req.status === "Completed" || req.completionPercentage === 100
+                              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                              : "bg-blue-100 text-blue-800 border-blue-300"
+                          }`}>
+                            {req.status === "Completed" || req.completionPercentage === 100 ? "Completed" : req.status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-zinc-600 font-sans font-bold">
+                          Dept: <strong className="text-zinc-950">{req.department}</strong> | Cols: <strong className="text-zinc-950">{req.startColumn}-{req.endColumn}</strong> | Crane: <strong className="text-amber-800">{req.mandatoryCrane}</strong>
+                        </div>
+                        {req.details && (
+                          <div className="text-[10px] text-zinc-500 italic bg-white p-1.5 border border-zinc-200 rounded-sm font-sans mt-1">
+                            <strong>Work Details:</strong> {req.details}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-1 w-full md:w-64">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-zinc-700">
+                          <span>PROGRESS:</span>
+                          <span className="text-blue-700 font-black text-sm">{req.completionPercentage ?? 0}%</span>
+                        </div>
+                        <div className="w-full bg-zinc-200 h-2 rounded-sm overflow-hidden border border-zinc-300">
+                          <div
+                            className="bg-blue-600 h-full transition-all duration-300"
+                            style={{ width: `${req.completionPercentage ?? 0}%` }}
+                          ></div>
+                        </div>
+                        <div className="text-[9px] text-right text-zinc-400 font-bold mt-0.5">
+                          Span: {req.estimatedStartTime} - {req.estimatedEndTime}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* SUB-VIEW 5: Report Area Jobs (Report my area job being done or not) */}
+      {currentSubView === "report-jobs" && (
+        <div className="max-w-4xl mx-auto bg-white border-4 border-[#141414] p-8 shadow-[6px_6px_0px_#141414] relative overflow-hidden font-sans">
+          <div className="absolute top-0 left-0 right-0 h-2 bg-emerald-500"></div>
+
+          <div className="border-b-2 border-zinc-200 pb-4 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-md font-black uppercase tracking-tight text-[#141414] flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                Report My Area Job Completion Status
+              </h3>
+              <p className="text-[11px] text-zinc-500 font-mono mt-1 font-bold">
+                {user.role === "Admin"
+                  ? "Admin Console: Report or override status & completion rate for any active jobs."
+                  : `Supervisor Area ${user.area} Console: Report status & completion % for scheduled jobs.`}
+              </p>
+            </div>
+            
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 border-2 border-[#141414] text-[#141414] font-black uppercase tracking-wider text-[10px] rounded-sm shadow-[2px_2px_0px_#141414] cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Sync Data
+            </button>
+          </div>
+
+          {/* Area Filter Indicator Panel */}
+          <div className="bg-zinc-50 border-2 border-[#141414] p-4 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 shadow-[3px_3px_0px_#141414] font-mono text-xs">
+            <div>
+              <span className="font-black text-zinc-400 uppercase block text-[8px] tracking-wider leading-none mb-1">Target reporting channel</span>
+              <span className="text-zinc-900 font-black text-sm uppercase">
+                {user.role === "Admin" ? "★ All Terminal Areas" : `Area ${user.area} Console`}
+              </span>
+            </div>
+            <div className="sm:text-right">
+              <span className="font-black text-zinc-400 uppercase block text-[8px] tracking-wider leading-none mb-1">Current Active Shift</span>
+              <span className="text-emerald-700 font-black text-sm uppercase">{getCurrentShift(currentTime)}</span>
+            </div>
+          </div>
+
+          {/* Main checklist */}
+          <div className="space-y-4">
+            <h4 className="text-xs uppercase font-black text-zinc-500 font-mono tracking-wider border-b pb-1">
+              {user.role === "Admin" ? "All Active Operations Checklist" : `Active Area ${user.area} Jobs Waiting for Reports`}
+            </h4>
+
+            {(() => {
+              const reportableJobs = requests.filter(r => {
+                const isOnActiveShift = r.shift === getCurrentShift(currentTime);
+                const isScheduledOrActive = r.status !== "Draft";
+                const isMyArea = user.role === "Admin" || r.area === Number(user.area || 1);
+                return isOnActiveShift && isScheduledOrActive && isMyArea;
+              });
+
+              if (reportableJobs.length === 0) {
+                return (
+                  <div className="py-16 border-2 border-dashed border-zinc-300 rounded-sm text-center text-zinc-400 text-xs bg-zinc-50 font-mono">
+                    <ClipboardList className="w-8 h-8 mx-auto mb-2 text-zinc-300" />
+                    No active or scheduled operations recorded in {user.role === "Admin" ? "any area" : `your Area ${user.area}`} on shift {getCurrentShift(currentTime)} yet.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  {reportableJobs.map((req) => (
+                    <VerificationRow
+                      key={req.id}
+                      req={req}
+                      user={user}
+                      onRefresh={onRefresh}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+interface VerificationRowProps {
+  key?: any;
+  req: CraneRequest;
+  user: User;
+  onRefresh: () => void;
+}
+
+function VerificationRow({ req, user, onRefresh }: VerificationRowProps) {
+  const [percent, setPercent] = useState<number>(req.completionPercentage ?? 0);
+  const [status, setStatus] = useState<string>(req.status);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [feedback, setFeedback] = useState<string>("");
+
+  useEffect(() => {
+    setPercent(req.completionPercentage ?? 0);
+    setStatus(req.status);
+  }, [req]);
+
+  const handleSaveVerification = async () => {
+    setIsSaving(true);
+    setFeedback("");
+    try {
+      const res = await fetch(`/api/requests/${req.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("crane_token")}`
+        },
+        body: JSON.stringify({
+          completionPercentage: percent,
+          isVerified: true,
+          verificationTime: new Date().toISOString(),
+          verifiedBy: user.name,
+          status: percent === 100 ? "Completed" : status
+        })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to submit verification");
+      }
+      setFeedback("✅ Verified & Synced!");
+      onRefresh();
+    } catch (err: any) {
+      setFeedback(`❌ Error: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className={`p-4 border-2 rounded-sm font-mono text-xs ${
+        req.isVerified
+          ? "bg-emerald-50/40 border-emerald-300 text-emerald-950"
+          : "bg-white border-zinc-400 text-zinc-900"
+      }`}
+    >
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-200 pb-2.5 mb-3">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <span className="font-black text-sm text-[#141414]">{req.id}</span>
+            {req.jobType === "Continuation" && (
+              <span className="px-1.5 py-0.5 bg-amber-100 border border-amber-300 text-amber-900 text-[9px] font-black rounded-sm uppercase">
+                Continuation of {req.parentJobId}
+              </span>
+            )}
+            {req.isVerified ? (
+              <span className="px-1.5 py-0.5 bg-emerald-100 border border-emerald-300 text-emerald-800 text-[9px] font-black rounded-sm uppercase">
+                Verified Sign-off
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 bg-zinc-100 border border-zinc-300 text-zinc-500 text-[9px] font-black rounded-sm uppercase">
+                Pending Sign-off
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-zinc-500 font-bold">
+            {req.department} | Cols {req.startColumn}-{req.endColumn} | Load {req.estimatedWeight}T | Gantry {req.mandatoryCrane}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <div className="text-[9px] uppercase font-bold text-zinc-400">Scheduled Span</div>
+            <div className="font-bold text-[#141414]">{req.estimatedStartTime} - {req.estimatedEndTime}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+        {/* Rating percentage */}
+        <div className="md:col-span-5 space-y-2">
+          <div className="flex justify-between items-center text-[10px] font-bold text-zinc-700">
+            <span>COMPLETION PERCENTAGE</span>
+            <span className="text-emerald-700 font-black text-sm">{percent}%</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="25"
+              value={percent}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setPercent(val);
+                if (val === 100) {
+                  setStatus("Completed");
+                }
+              }}
+              className="w-full h-2 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-emerald-600"
+            />
+            <div className="flex gap-1 text-[8px] font-black text-zinc-400">
+              <span>0%</span>
+              <span>•</span>
+              <span>25%</span>
+              <span>•</span>
+              <span>50%</span>
+              <span>•</span>
+              <span>75%</span>
+              <span>•</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Status override */}
+        <div className="md:col-span-3">
+          <label className="block text-[9px] font-black text-zinc-500 mb-1">STATUS VERIFICATION</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            disabled={percent === 100}
+            className="w-full p-1.5 bg-white border border-zinc-300 rounded-sm font-bold text-[11px]"
+          >
+            <option value="Draft">Draft</option>
+            <option value="Submitted">Submitted</option>
+            <option value="Scheduled">Scheduled</option>
+            <option value="Completed">Completed</option>
+            <option value="Rejected">Rejected</option>
+            <option value="Deferred">Deferred</option>
+          </select>
+        </div>
+
+        {/* Verification details and submission button */}
+        <div className="md:col-span-4 flex flex-col items-stretch justify-end">
+          <button
+            type="button"
+            onClick={handleSaveVerification}
+            disabled={isSaving}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-800 shadow-[2px_2px_0px_rgba(0,0,0,0.15)] font-black uppercase rounded-sm cursor-pointer text-[10px] text-center"
+          >
+            {isSaving ? "Saving..." : "Verify Sign-off"}
+          </button>
+          {feedback && (
+            <div className="text-[10px] font-bold text-center mt-1 text-emerald-800 bg-emerald-50 border border-emerald-300 py-0.5 rounded-sm">
+              {feedback}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {req.isVerified && (
+        <div className="mt-2.5 pt-2 border-t border-dashed border-emerald-200 text-[10px] text-emerald-700 font-sans font-semibold flex flex-wrap justify-between">
+          <span>Verified by Supervisor: <strong>{req.verifiedBy || "System Operator"}</strong></span>
+          <span>Timestamp: <strong>{req.verificationTime ? new Date(req.verificationTime).toLocaleString() : "Not Recorded"}</strong></span>
+        </div>
+      )}
     </div>
   );
 }

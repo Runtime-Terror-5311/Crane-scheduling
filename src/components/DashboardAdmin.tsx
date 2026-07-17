@@ -418,20 +418,18 @@ export default function DashboardAdmin({
         <div className="flex flex-wrap items-center gap-3">
           {/* Activation status message */}
           <div className="text-[10px] font-mono font-bold uppercase tracking-tight px-2.5 py-1.5 bg-zinc-100 border border-zinc-300 text-zinc-700 rounded-sm">
-            {draft > 0 ? (
-              <span className="text-amber-700 animate-pulse">⚠️ {draft} Draft request{draft > 1 ? "s" : ""} pending submission</span>
-            ) : pending === 0 ? (
-              <span className="text-zinc-500">No submitted requests to schedule</span>
+            {pending === 0 && draft === 0 ? (
+              <span className="text-zinc-500">No requests to schedule</span>
             ) : (
-              <span className="text-emerald-700">✓ Ready to schedule ({pending} submitted)</span>
+              <span className="text-emerald-700">✓ Ready to schedule ({pending + draft} pending)</span>
             )}
           </div>
 
           <button
             onClick={onGenerateSchedule}
-            disabled={pending === 0 || draft > 0}
+            disabled={pending === 0 && draft === 0}
             className={`px-4 py-2 font-black text-xs rounded-sm border-2 border-[#141414] flex items-center gap-1.5 uppercase tracking-wider transition-all shadow-[3px_3px_0px_#141414] ${
-              pending > 0 && draft === 0
+              (pending > 0 || draft > 0)
                 ? "bg-amber-500 hover:bg-amber-600 text-[#141414] cursor-pointer active:translate-y-[2px] active:shadow-[1px_1px_0px_#141414]"
                 : "bg-zinc-200 border-zinc-400 text-zinc-400 shadow-none cursor-not-allowed opacity-60"
             }`}
@@ -519,6 +517,74 @@ export default function DashboardAdmin({
           </div>
         </button>
       </div>
+
+      {/* High Visibility Pending Jobs Monitor - Tells Whose Job Is Pending */}
+      {(() => {
+        const pendingJobs = requests.filter(r => r.status === "Submitted" || r.status === "Draft");
+        if (pendingJobs.length === 0) return null;
+        return (
+          <div className="mb-6 p-4 bg-amber-50 border-4 border-[#141414] rounded-sm shadow-[4px_4px_0px_#141414] font-mono">
+            <div className="flex items-center gap-2 border-b-2 border-[#141414] pb-2 mb-3">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+              <h3 className="font-black text-[#141414] text-xs uppercase tracking-tight">
+                ⚠️ Live Operations Queue: Whos Job is Pending Schedule ({pendingJobs.length})
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {pendingJobs.map((job) => (
+                <div key={job.id} className="p-3 bg-white border-2 border-[#141414] rounded-sm shadow-[2px_2px_0px_#141414] flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between border-b pb-1.5 mb-2 text-[10px]">
+                      <span className="font-black text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-sm">
+                        {job.id}
+                      </span>
+                      <span className={`font-black px-1.5 py-0.5 rounded-sm border ${
+                        job.priority === "P1"
+                          ? "bg-red-50 text-red-800 border-red-300"
+                          : "bg-zinc-100 text-[#141414] border-zinc-200"
+                      }`}>
+                        {job.priority}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 text-[11px]">
+                      <div>
+                        <span className="text-zinc-400 uppercase font-black text-[9px] block">Requesting Shop Floor Dept (Owner)</span>
+                        <span className="text-zinc-900 font-black text-xs block bg-zinc-50 border border-zinc-200 p-1.5 rounded-sm leading-tight font-sans">
+                          💼 {job.department}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] font-bold">
+                        <div>
+                          <span className="text-zinc-400 text-[8px] uppercase block leading-none mb-0.5">Location</span>
+                          <span className="text-[#141414]">Area {job.area} (Cols {job.startColumn}-{job.endColumn})</span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-400 text-[8px] uppercase block leading-none mb-0.5">Crane Hook</span>
+                          <span className="text-amber-800">{job.mandatoryCrane || "Any Gantry"}</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-1.5">
+                        <span className="text-zinc-400 uppercase font-black text-[9px] block">Workscope details</span>
+                        <p className="text-zinc-600 font-sans font-semibold text-[10px] leading-snug mt-0.5">
+                          {job.details || job.remarks || "No details provided"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-zinc-100 flex items-center justify-between text-[10px]">
+                    <span className="text-zinc-500 font-black">🕒 {job.estimatedStartTime} - {job.estimatedEndTime}</span>
+                    <span className="text-zinc-400 font-bold">{job.estimatedWeight} Tons</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Analytics Tab */}
       {activeTab === "analytics" && (

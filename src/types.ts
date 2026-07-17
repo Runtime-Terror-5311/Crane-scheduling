@@ -54,6 +54,13 @@ export interface CraneRequest {
   status: RequestStatus;
   createdAt: string;
   date?: string; // "YYYY-MM-DD" target date of the requirement
+  jobType?: "New" | "Continuation";
+  parentJobId?: string;
+  details?: string;
+  completionPercentage?: number; // 0-100% completion rating
+  isVerified?: boolean;
+  verificationTime?: string;
+  verifiedBy?: string;
 }
 
 export interface Schedule {

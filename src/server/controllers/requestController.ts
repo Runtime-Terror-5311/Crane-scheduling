@@ -168,7 +168,11 @@ export const createRequest = (req: Request, res: Response): void => {
 
     const area = user.role === "Admin" ? Number(req.body.area || 1) : Number(user.area);
     const db = readDB();
-    const reqId = `REQ-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+    const jobType = req.body.jobType === "Continuation" ? "Continuation" : "New";
+    const parentJobId = req.body.parentJobId || undefined;
+    const reqId = jobType === "Continuation" && parentJobId
+      ? `${parentJobId}-CONT-${Math.floor(10 + Math.random() * 90)}`
+      : `REQ-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
 
     let bay = (req.body.bay || "A").trim().toUpperCase();
     if (mandatoryCrane && mandatoryCrane !== "Any") {
@@ -194,6 +198,13 @@ export const createRequest = (req: Request, res: Response): void => {
       status: status as any,
       createdAt: new Date().toISOString(),
       date: req.body.date || new Date().toISOString().split("T")[0],
+      jobType,
+      parentJobId,
+      details: req.body.details || undefined,
+      completionPercentage: req.body.completionPercentage !== undefined ? Number(req.body.completionPercentage) : undefined,
+      isVerified: req.body.isVerified || false,
+      verificationTime: req.body.verificationTime || undefined,
+      verifiedBy: req.body.verifiedBy || undefined,
     };
 
     db.requests.push(newRequest);
@@ -203,7 +214,7 @@ export const createRequest = (req: Request, res: Response): void => {
       user.employeeId,
       user.name,
       "Request Created",
-      `Created job ${reqId} (${status}) in Area ${area}, Columns ${finalStartCol}-${finalEndCol}.`
+      `Created job ${reqId} (${status}) in Area ${area}, Columns ${finalStartCol}-${finalEndCol}.${jobType === "Continuation" ? ` Continuation of ${parentJobId}` : ""}`
     );
 
     res.status(201).json(newRequest);
@@ -295,8 +306,15 @@ export const updateRequest = (req: Request, res: Response): void => {
       remarks: req.body.remarks !== undefined ? req.body.remarks : existingReq.remarks,
       mandatoryCrane: req.body.mandatoryCrane || existingReq.mandatoryCrane,
       isTandemLift: req.body.isTandemLift !== undefined ? Boolean(req.body.isTandemLift) : (existingReq.isTandemLift || false),
-      status: user.role === "Admin" && req.body.status ? req.body.status : existingReq.status,
+      status: req.body.status ? req.body.status : existingReq.status,
       date: req.body.date || existingReq.date || existingReq.createdAt.split("T")[0],
+      jobType: req.body.jobType !== undefined ? req.body.jobType : existingReq.jobType,
+      parentJobId: req.body.parentJobId !== undefined ? req.body.parentJobId : existingReq.parentJobId,
+      details: req.body.details !== undefined ? req.body.details : existingReq.details,
+      completionPercentage: req.body.completionPercentage !== undefined ? Number(req.body.completionPercentage) : existingReq.completionPercentage,
+      isVerified: req.body.isVerified !== undefined ? Boolean(req.body.isVerified) : existingReq.isVerified,
+      verificationTime: req.body.verificationTime !== undefined ? req.body.verificationTime : existingReq.verificationTime,
+      verifiedBy: req.body.verifiedBy !== undefined ? req.body.verifiedBy : existingReq.verifiedBy,
     };
 
     db.requests[reqIndex] = updatedReq;

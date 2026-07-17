@@ -110,6 +110,7 @@ export default function OperationsList({
   const [selectedPriority, setSelectedPriority] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"scheduled" | "conflicts" | "history">("scheduled");
   const [isInstantModalOpen, setIsInstantModalOpen] = useState(false);
+  const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null);
 
   // Instant Scheduling form state
   const [instantShift, setInstantShift] = useState<string>("Shift A");
@@ -281,6 +282,7 @@ export default function OperationsList({
           travelTimeMinutes: sched?.travelTimeMinutes || 0,
           bufferTimeMinutes: sched?.bufferTimeMinutes || 0,
           remarks: req.remarks,
+          details: req.details,
           weight: req.estimatedWeight,
           createdAt: req.createdAt,
         };
@@ -296,7 +298,8 @@ export default function OperationsList({
       const matchesSearch = 
         op.requestId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (op.department || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (op.origReq?.details || "").toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesShift = selectedShift === "ALL" || op.shift === selectedShift;
       const matchesPriority = selectedPriority === "ALL" || op.priority === selectedPriority;
@@ -319,7 +322,8 @@ export default function OperationsList({
       const matchesSearch = 
         op.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (op.department || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (op.details || "").toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesShift = selectedShift === "ALL" || op.shift === selectedShift;
       const matchesPriority = selectedPriority === "ALL" || op.priority === selectedPriority;
@@ -341,7 +345,8 @@ export default function OperationsList({
       const matchesSearch = 
         op.requestId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (op.department || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase());
+        (op.remarks || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (op.details || "").toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesShift = historyShiftFilter === "ALL" || op.shift === historyShiftFilter;
       const matchesPriority = selectedPriority === "ALL" || op.priority === selectedPriority;
@@ -825,29 +830,61 @@ export default function OperationsList({
                               </td>
 
                               {/* Remarks & Instructions */}
-                              <td className="py-3 px-4 text-zinc-600 text-xs font-sans font-semibold leading-relaxed max-w-xs truncate hover:text-clip hover:whitespace-normal">
+                              <td className="py-3 px-4 text-zinc-600 text-xs font-sans font-semibold leading-relaxed max-w-xs hover:whitespace-normal">
                                 {isTandem && (
                                   <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 text-[9px] font-black px-1.5 py-0.5 rounded-sm uppercase mr-2 font-mono">
                                     Tandem with {op.secondaryCrane || "A2"}
                                   </span>
                                 )}
-                                {op.remarks || <span className="italic text-zinc-400 text-[11px]">No remarks.</span>}
+                                {op.origReq?.details && (
+                                  <div className="mb-1 text-zinc-900 font-bold bg-amber-50/50 border border-amber-200/50 rounded-sm p-1.5 text-[11px] leading-snug">
+                                    <span className="text-[9px] uppercase font-mono font-black text-amber-800 block mb-0.5">Work:</span>
+                                    {op.origReq.details}
+                                  </div>
+                                )}
+                                {op.remarks ? (
+                                  <div className="text-zinc-500 text-[11px] italic">
+                                    "{op.remarks}"
+                                  </div>
+                                ) : (
+                                  !op.origReq?.details && <span className="italic text-zinc-400 text-[11px]">No remarks/details.</span>
+                                )}
                               </td>
 
                               {/* Actions Column */}
                               <td className="py-3 px-4 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (window.confirm("Are you sure you want to cancel this job? It will be removed from the timetable and reverted back to Draft for rescheduling.")) {
-                                      onCancelSchedule?.(op.id);
-                                    }
-                                  }}
-                                  className="px-2 py-1.5 bg-red-50 hover:bg-red-100 border-2 border-red-300 text-red-700 text-[10px] font-black rounded-sm uppercase tracking-tight transition-all cursor-pointer flex items-center justify-center gap-1 w-full"
-                                >
-                                  <Ban className="w-3.5 h-3.5" />
-                                  Cancel/Resched
-                                </button>
+                                {confirmingCancelId === op.id ? (
+                                  <div className="flex flex-col gap-1 w-full min-w-[100px]">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onCancelSchedule?.(op.id);
+                                        setConfirmingCancelId(null);
+                                      }}
+                                      className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black rounded-sm uppercase tracking-tight transition-all cursor-pointer flex items-center justify-center gap-1 w-full"
+                                    >
+                                      Confirm Yes
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmingCancelId(null)}
+                                      className="px-2 py-1 bg-zinc-200 hover:bg-zinc-300 text-[#141414] text-[9px] font-black rounded-sm uppercase tracking-tight transition-all cursor-pointer flex items-center justify-center gap-1 w-full"
+                                    >
+                                      No, Keep
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmingCancelId(op.id);
+                                    }}
+                                    className="px-2 py-1.5 bg-red-50 hover:bg-red-100 border-2 border-red-300 text-red-700 text-[10px] font-black rounded-sm uppercase tracking-tight transition-all cursor-pointer flex items-center justify-center gap-1 w-full"
+                                  >
+                                    <Ban className="w-3.5 h-3.5" />
+                                    Cancel/Resched
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -943,6 +980,15 @@ export default function OperationsList({
 
                           {/* Conflict explanation */}
                           <div className="space-y-2">
+                            {op.details && (
+                              <div className="text-xs leading-relaxed font-sans font-semibold">
+                                <span className="text-[9px] font-mono font-black text-zinc-400 uppercase block">Shift Work Details</span>
+                                <p className="text-zinc-800 bg-amber-50/40 border border-amber-200/50 p-2 rounded-sm font-bold">
+                                  {op.details}
+                                </p>
+                              </div>
+                            )}
+
                             <div className="text-xs leading-relaxed font-sans font-semibold">
                               <span className="text-[9px] font-mono font-black text-zinc-400 uppercase block">Submission Remarks</span>
                               <p className="text-zinc-600 bg-white border border-zinc-200 p-2 rounded-sm italic">
@@ -1152,8 +1198,16 @@ export default function OperationsList({
                     <div>Dept/Cost Center: <span className="text-[#141414] font-black">{op.department}</span></div>
                   </div>
 
+                  {op.details && (
+                    <div className="text-[10px] text-zinc-900 font-bold bg-amber-50/50 p-2 rounded-sm border border-amber-200/50">
+                      <span className="text-[8px] font-mono font-black text-amber-800 uppercase block mb-0.5">Shift Work Details:</span>
+                      {op.details}
+                    </div>
+                  )}
+
                   {op.remarks && (
                     <div className="text-[10px] text-zinc-500 italic bg-zinc-50 p-2 rounded-sm border border-zinc-200">
+                      <span className="text-[8px] font-mono font-black text-zinc-400 uppercase block mb-0.5">Remarks:</span>
                       "{op.remarks}"
                     </div>
                   )}

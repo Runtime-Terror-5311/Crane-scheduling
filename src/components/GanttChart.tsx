@@ -97,6 +97,7 @@ export default function GanttChart({
         ...sched,
         shift,
         requestStatus,
+        origReq,
       };
     });
   }, [schedules, requests]);
@@ -348,9 +349,16 @@ export default function GanttChart({
                 </div>
               </div>
 
-              <div className="mt-4 p-3 bg-white border-2 border-[#141414] rounded-sm text-xs">
-                <div className="font-black text-[9px] text-zinc-500 uppercase tracking-wide">Operation Description</div>
-                <div className="text-[#141414] font-medium mt-1 font-mono">{selectedJob.remarks || "No descriptive notes recorded."}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="p-3 bg-amber-50/50 border-2 border-[#141414] rounded-sm text-xs">
+                  <div className="font-black text-[9px] text-amber-800 uppercase tracking-wide">Shift Work Details</div>
+                  <div className="text-zinc-900 font-bold mt-1 font-sans">{(selectedJob as any).origReq?.details || "No precise shift work details recorded."}</div>
+                </div>
+
+                <div className="p-3 bg-white border-2 border-[#141414] rounded-sm text-xs">
+                  <div className="font-black text-[9px] text-zinc-500 uppercase tracking-wide">Operation Remarks</div>
+                  <div className="text-[#141414] font-medium mt-1 font-mono">{selectedJob.remarks || "No descriptive notes recorded."}</div>
+                </div>
               </div>
             </div>
           )}
