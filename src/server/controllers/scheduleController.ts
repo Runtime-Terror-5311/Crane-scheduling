@@ -243,6 +243,50 @@ export const generateSchedule = (req: Request, res: Response): void => {
     db.schedules = [...db.schedules, ...schedulerResult.schedules];
     db.cranes = updatedCranes;
 
+    // Reset or initialize planning points if needed monthly
+    const now = new Date();
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    if (!db.settings.lastPointsResetMonth || db.settings.lastPointsResetMonth !== currentMonthStr) {
+      db.users.forEach((u: any) => {
+        u.planningPoints = 100;
+      });
+      db.settings.lastPointsResetMonth = currentMonthStr;
+    }
+
+    // Now calculate planning points and priority penalties for each Area User
+    db.users.forEach((u: any) => {
+      if (u.planningPoints === undefined) {
+        u.planningPoints = 100;
+      }
+      
+      if (u.role === "Area User" && u.area) {
+        // Find all active schedules in db.schedules that belong to this user's area
+        const userSchedules = db.schedules.filter((s: any) => 
+          Number(s.area) === Number(u.area) && 
+          s.status !== "Completed" && 
+          s.status !== "Cancelled"
+        );
+        const p1Count = userSchedules.filter((s: any) => s.priority === "P1").length;
+        const p2Count = userSchedules.filter((s: any) => s.priority === "P2").length;
+
+        let penalty = 0;
+        if (p1Count > 2) {
+          penalty += (p1Count - 2) * 10;
+        }
+        if (p2Count > 3) {
+          penalty += (p2Count - 3) * 5;
+        }
+
+        // Count how many instant schedules they created
+        const instantCount = db.requests.filter((r: any) => 
+          Number(r.area) === Number(u.area) && 
+          (r.id.startsWith("REQ-INST-") || (r.remarks && r.remarks.includes("Instantly Scheduled")))
+        ).length;
+
+        u.planningPoints = Math.max(0, 100 - (instantCount * 5) - penalty);
+      }
+    });
+
     writeDB(db);
 
     logActivity(
@@ -848,9 +892,6 @@ export const instantSchedule = (req: Request, res: Response): void => {
       return;
     }
 
-    // Deduct 5 points!
-    dbUser.planningPoints = Math.max(0, dbUser.planningPoints - 5);
-
     // Create CraneRequest
     const reqId = `REQ-INST-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
     const newRequest = {
@@ -910,6 +951,34 @@ export const instantSchedule = (req: Request, res: Response): void => {
 
     db.requests.push(newRequest);
     db.schedules.push(newSchedule);
+
+    // Recompute planning points and priorities dynamic penalties self-correction for all supervisors
+    db.users.forEach((u: any) => {
+      if (u.role === "Area User" && u.area) {
+        const userSchedules = db.schedules.filter((s: any) => 
+          Number(s.area) === Number(u.area) && 
+          s.status !== "Completed" && 
+          s.status !== "Cancelled"
+        );
+        const p1Count = userSchedules.filter((s: any) => s.priority === "P1").length;
+        const p2Count = userSchedules.filter((s: any) => s.priority === "P2").length;
+
+        let penalty = 0;
+        if (p1Count > 2) {
+          penalty += (p1Count - 2) * 10;
+        }
+        if (p2Count > 3) {
+          penalty += (p2Count - 3) * 5;
+        }
+
+        const instantCount = db.requests.filter((r: any) => 
+          Number(r.area) === Number(u.area) && 
+          (r.id.startsWith("REQ-INST-") || (r.remarks && r.remarks.includes("Instantly Scheduled")))
+        ).length;
+
+        u.planningPoints = Math.max(0, 100 - (instantCount * 5) - penalty);
+      }
+    });
 
     writeDB(db);
 

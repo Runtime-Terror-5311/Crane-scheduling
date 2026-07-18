@@ -22,7 +22,7 @@ import {
   Hammer
 } from "lucide-react";
 import { Schedule, CraneRequest, PriorityType, ShiftType, Crane } from "../types";
-import { isScheduleInShiftBoundary, getAreasForBay, getColumnsForArea, formatTimeTo12Hr, getBayForArea } from "../utils/shiftUtils";
+import { isScheduleInShiftBoundary, getAreasForBay, getColumnsForArea, formatTimeTo12Hr, getBayForArea, getBayForCrane } from "../utils/shiftUtils";
 import { generateDateWisePDF, generateCraneWorkingHoursPDF } from "../utils/pdfGenerator";
 
 interface OperationsListProps {
@@ -518,6 +518,21 @@ export default function OperationsList({
     }
   };
 
+  const getBaysForUser = (u: any): string[] => {
+    if (!u) return ["1"];
+    if (u.role === "Admin") return ["1", "2", "3", "4", "5", "6", "7"];
+    
+    const supervisedCranes = u.craneNo 
+      ? u.craneNo.split(",").map((c: string) => c.trim().toUpperCase()).filter(Boolean) 
+      : [];
+    
+    if (supervisedCranes.length === 0) {
+      return [String(getBayForArea(u.area || 1))];
+    }
+    
+    return Array.from(new Set(supervisedCranes.map((craneId: string) => getBayForCrane(craneId))));
+  };
+
   return (
     <div id="shift_master_operations_list" className="bg-white rounded-sm border-4 border-[#141414] p-6 shadow-[6px_6px_0px_#141414] font-sans relative overflow-hidden mb-8">
       
@@ -593,6 +608,27 @@ export default function OperationsList({
           </button>
         </div>
       </div>
+
+      {/* Supervisor Supervision Station Banner */}
+      {user && user.role === "Area User" && (
+        <div id="supervisor_access_banner" className="mb-6 bg-amber-50 border-2 border-amber-500 p-4 rounded-sm font-mono text-xs text-amber-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-[2px_2px_0px_#f59e0b]">
+          <div className="space-y-0.5">
+            <span className="font-black uppercase text-[10px] bg-amber-500 text-slate-950 px-2 py-0.5 rounded-sm">
+              SUPERVISOR AUTHORIZED ACCESS STATION
+            </span>
+            <div className="font-sans font-bold text-sm text-zinc-900 mt-1 uppercase">
+              {user.name} ({user.employeeId}) — STATION AREA {user.area || 1}
+            </div>
+            <p className="text-[11px] text-amber-900 font-bold">
+              Your crane assignments map to: <span className="font-extrabold text-amber-950 underline">{user.craneNo || "None"}</span> 
+              {" | "} Supervised Bays: <span className="font-extrabold text-amber-950 underline">{getBaysForUser(user).map(b => `Bay ${b}`).join(", ") || "None"}</span>
+            </p>
+          </div>
+          <div className="bg-white border-2 border-amber-500 px-3 py-1.5 rounded-sm font-black text-center text-[10px] uppercase text-amber-950 shadow-sm">
+            🛜 ACTIVE SUPERVISION ENFORCED
+          </div>
+        </div>
+      )}
 
       {/* Control / Filter Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 bg-zinc-50 p-4 border-2 border-[#141414] rounded-sm mb-6">

@@ -102,3 +102,19 @@ export function formatTimeTo12Hr(timeStr: string): string {
   const mFormatted = String(m).padStart(2, "0");
   return `${h}:${mFormatted} ${ampm}`;
 }
+
+export function getBayForCrane(craneId: string): string {
+  if (!craneId) return "1";
+  const char = craneId.trim().charAt(0).toUpperCase();
+  const mapping: Record<string, string> = {
+    "A": "1",
+    "B": "2",
+    "C": "3",
+    "D": "4",
+    "E": "5",
+    "F": "6",
+    "G": "7"
+  };
+  return mapping[char] || "1";
+}
+

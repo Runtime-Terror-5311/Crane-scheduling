@@ -11,10 +11,12 @@ import {
   CalendarDays,
   Gauge,
   BookOpen,
-  FileText
+  FileText,
+  Download
 } from "lucide-react";
 import { CraneRequest, Crane } from "../types";
 import CraneAllocationsTable from "./CraneAllocationsTable";
+import { generateJobsTrackerPDF } from "../utils/pdfGenerator";
 
 interface AdminJobsTrackerProps {
   requests: CraneRequest[];
@@ -27,6 +29,7 @@ export default function AdminJobsTracker({ requests, cranes }: AdminJobsTrackerP
   const [priorityFilter, setPriorityFilter] = useState<"All" | "P1" | "P2" | "P3" | "P4">("All");
   const [departmentFilter, setDepartmentFilter] = useState<string>("All");
   const [cardViews, setCardViews] = useState<Record<string, "grid" | "sheet">>({});
+  const [selectedPdfReqId, setSelectedPdfReqId] = useState<string>("ALL");
 
   // Get unique departments for filtering
   const departments = ["All", ...Array.from(new Set(requests.map((r) => r.department).filter(Boolean)))];
@@ -166,6 +169,48 @@ export default function AdminJobsTracker({ requests, cranes }: AdminJobsTrackerP
           </p>
         </div>
 
+      </div>
+
+      {/* PDF Export Section */}
+      <div id="pdf_export_station" className="bg-zinc-50 border-2 border-[#141414] p-4 rounded-sm shadow-[3px_3px_0px_#141414] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono text-xs">
+        <div className="space-y-1">
+          <div className="font-sans font-black uppercase text-xs text-zinc-950 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-zinc-800" />
+            <span>Manufacturing Logs &amp; Hoisting Milestones Exporter</span>
+            <span className="bg-zinc-200 text-zinc-800 text-[8px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider border border-zinc-300 ml-1">
+              Minimalist PDF
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-600 font-bold uppercase leading-normal">
+            Generate and download a clean, structured PDF report of your heavy fabrication jobs.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+          <div className="relative min-w-[240px] w-full sm:w-auto">
+            <select
+              value={selectedPdfReqId}
+              onChange={(e) => setSelectedPdfReqId(e.target.value)}
+              className="w-full p-2 border-2 border-[#141414] bg-white rounded-sm text-xs font-black uppercase tracking-wider text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
+            >
+              <option value="ALL">🌟 DOWNLOAD ALL REGISTRATION LOGS</option>
+              {requests
+                .filter(r => r.jobType !== "Continuation")
+                .map((r) => (
+                  <option key={r.id} value={r.id}>
+                    REQ ID: {r.id} ({r.machineName || r.department})
+                  </option>
+                ))}
+            </select>
+          </div>
+          <button
+            onClick={() => generateJobsTrackerPDF(requests, selectedPdfReqId)}
+            className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-black uppercase tracking-wider text-xs border-2 border-[#141414] rounded-sm shadow-[3px_3px_0px_#141414] active:translate-y-[1px] active:shadow-[2px_2px_0px_#141414] transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5"
+          >
+            <Download className="w-3.5 h-3.5 text-white" />
+            Download PDF Report
+          </button>
+        </div>
       </div>
 
       {/* Control Filter Toolbar */}
@@ -485,7 +530,7 @@ export default function AdminJobsTracker({ requests, cranes }: AdminJobsTrackerP
                     </h3>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className={`text-xs border-2 border-[#141414] px-3 py-1 rounded-sm font-mono font-black shadow-[1.5px_1.5px_0px_#141414] ${
                       req.status === "Deferred"
                         ? "bg-rose-100 text-rose-800"
@@ -496,6 +541,13 @@ export default function AdminJobsTracker({ requests, cranes }: AdminJobsTrackerP
                     <span className="text-xs bg-amber-100 text-amber-950 border-2 border-[#141414] px-3 py-1 rounded-sm font-mono font-black shadow-[1.5px_1.5px_0px_#141414]">
                       ⏱️ {totalTimeTaken.toFixed(1)} Hours Total
                     </span>
+                    <button
+                      onClick={() => generateJobsTrackerPDF(requests, req.id)}
+                      className="flex items-center gap-1 px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 border-2 border-[#141414] rounded-sm font-mono font-black text-xs shadow-[1.5px_1.5px_0px_#141414] transition-all cursor-pointer active:translate-y-[1px]"
+                      title={`Download PDF report for Job #${req.id}`}
+                    >
+                      <Download className="w-3.5 h-3.5" /> PDF
+                    </button>
                   </div>
                 </div>
 

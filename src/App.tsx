@@ -11,15 +11,16 @@ import CranesSpecifications from "./components/CranesSpecifications";
 import CraneCalendar from "./components/CraneCalendar";
 import CraneManagement from "./components/CraneManagement";
 import AdminJobsTracker from "./components/AdminJobsTracker";
+import ManageUsers from "./components/ManageUsers";
 import { User, Crane, CraneRequest, Schedule, AuditLog, ShiftReport } from "./types";
-import { getCurrentShift, getBayForArea, getAreasForBay } from "./utils/shiftUtils";
+import { getCurrentShift, getBayForArea, getAreasForBay, getBayForCrane } from "./utils/shiftUtils";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("crane_token"));
   const [user, setUser] = useState<User | null>(null);
 
   // Pages layout state
-  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management" | "jobs_tracker">("home");
+  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management" | "jobs_tracker" | "manage_users">("home");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Core telemetries
@@ -120,14 +121,30 @@ export default function App() {
     }
   }, [globalAlert]);
 
+  const getBaysForUser = (u: User | null): string[] => {
+    if (!u) return ["1"];
+    if (u.role === "Admin") return ["1", "2", "3", "4", "5", "6", "7"];
+    
+    const supervisedCranes = u.craneNo 
+      ? u.craneNo.split(",").map(c => c.trim().toUpperCase()).filter(Boolean) 
+      : [];
+    
+    if (supervisedCranes.length === 0) {
+      return [String(getBayForArea(u.area || 1))];
+    }
+    
+    // Get unique bays for their supervised cranes
+    const bays = supervisedCranes.map(craneId => getBayForCrane(craneId));
+    return Array.from(new Set(bays));
+  };
+
   // Safety area/bays lockout enforcement for Area Users
   useEffect(() => {
     if (user && user.role === "Area User") {
-      const uBay = String(getBayForArea(user.area || 1));
-      if (selectedBay !== uBay) {
-        setSelectedBay(uBay);
+      const allowedBays = getBaysForUser(user);
+      if (!allowedBays.includes(selectedBay)) {
+        setSelectedBay(allowedBays[0]);
       }
-      // Area Users are locked to their Bay (e.g. Bay 1), but they are allowed to change the area filter and view all cranes of the bay.
     }
   }, [user]);
 
@@ -719,61 +736,70 @@ export default function App() {
             <div id="bay_visualization_page" className="space-y-6">
               
               {/* Dynamic Bay Selector Tab/Dropdown Panel */}
-              {user.role === "Admin" ? (
-                <div id="bay_selector_panel" className="bg-white border-4 border-[#141414] p-5 shadow-[4px_4px_0px_#141414] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <h2 className="text-xs font-black uppercase tracking-widest font-mono text-zinc-500 flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 bg-amber-500 border border-[#141414] animate-pulse"></span>
-                      Active Runway Bay
-                    </h2>
-                    <p className="text-sm font-black text-zinc-900 uppercase">
-                      Select Bay Terminal to view live grid, timeline & requirements
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {baysList.map((b) => {
-                      const isActive = selectedBay === b;
-                      const letter = getBayLetter(b);
-                      const bayCraneCount = cranes.filter((c) => 
-                        c.id.toUpperCase().startsWith(b) || 
-                        c.id.toUpperCase().startsWith(letter.toUpperCase())
-                      ).length;
-                      return (
-                        <button
-                          key={b}
-                          id={`bay_btn_${b}`}
-                          onClick={() => setSelectedBay(b)}
-                          className={`px-4 py-2 border-2 border-[#141414] font-black font-mono text-xs uppercase transition-all shadow-[2px_2px_0px_#141414] hover:-translate-y-0.5 cursor-pointer active:translate-y-0 active:shadow-[1px_1px_0px_#141414] ${
-                            isActive
-                              ? "bg-amber-500 text-slate-950 translate-x-[1px] translate-y-[1px] shadow-[1px_1px_0px_#141414]"
-                              : "bg-zinc-100 text-[#141414] hover:bg-zinc-200"
-                          }`}
-                        >
-                          Bay {b}
-                          <span className="text-[10px] font-normal text-zinc-500 ml-1.5 font-sans font-bold">
-                            ({bayCraneCount} {bayCraneCount === 1 ? "crane" : "cranes"})
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div id="bay_selector_panel" className="bg-white border-4 border-[#141414] p-5 shadow-[4px_4px_0px_#141414] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <h2 className="text-xs font-black uppercase tracking-widest font-mono text-zinc-500 flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 bg-amber-500 border border-[#141414] animate-pulse"></span>
-                      Active Runway Bay (Operational Station Locked)
-                    </h2>
-                    <p className="text-sm font-black text-zinc-900 uppercase">
-                      Bay {selectedBay} — Restricted to Area {user.area} Operational Station
-                    </p>
-                  </div>
-                  <div className="text-xs font-mono font-bold bg-amber-50 border-2 border-[#141414] px-4 py-2 rounded-sm shadow-[2px_2px_0px_#141414] text-amber-950 uppercase">
-                    🛡️ Safety Enforced View
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const allowedBays = getBaysForUser(user);
+                if (user.role === "Admin" || allowedBays.length > 1) {
+                  return (
+                    <div id="bay_selector_panel" className="bg-white border-4 border-[#141414] p-5 shadow-[4px_4px_0px_#141414] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h2 className="text-xs font-black uppercase tracking-widest font-mono text-zinc-500 flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 bg-amber-500 border border-[#141414] animate-pulse"></span>
+                          {user.role === "Admin" ? "Active Runway Bay" : "Supervised Runway Bays"}
+                        </h2>
+                        <p className="text-sm font-black text-zinc-900 uppercase">
+                          {user.role === "Admin" 
+                            ? "Select Bay Terminal to view live grid, timeline & requirements"
+                            : "Select one of your assigned supervised bays to inspect runways"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {allowedBays.map((b) => {
+                          const isActive = selectedBay === b;
+                          const letter = getBayLetter(b);
+                          const bayCraneCount = cranes.filter((c) => 
+                            c.id.toUpperCase().startsWith(b) || 
+                            c.id.toUpperCase().startsWith(letter.toUpperCase())
+                          ).length;
+                          return (
+                            <button
+                              key={b}
+                              id={`bay_btn_${b}`}
+                              onClick={() => setSelectedBay(b)}
+                              className={`px-4 py-2 border-2 border-[#141414] font-black font-mono text-xs uppercase transition-all shadow-[2px_2px_0px_#141414] hover:-translate-y-0.5 cursor-pointer active:translate-y-0 active:shadow-[1px_1px_0px_#141414] ${
+                                isActive
+                                  ? "bg-amber-500 text-slate-950 translate-x-[1px] translate-y-[1px] shadow-[1px_1px_0px_#141414]"
+                                  : "bg-zinc-100 text-[#141414] hover:bg-zinc-200"
+                              }`}
+                            >
+                              Bay {b}
+                              <span className="text-[10px] font-normal text-zinc-500 ml-1.5 font-sans font-bold">
+                                ({bayCraneCount} {bayCraneCount === 1 ? "crane" : "cranes"})
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div id="bay_selector_panel" className="bg-white border-4 border-[#141414] p-5 shadow-[4px_4px_0px_#141414] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h2 className="text-xs font-black uppercase tracking-widest font-mono text-zinc-500 flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 bg-amber-500 border border-[#141414] animate-pulse"></span>
+                          Active Runway Bay (Operational Station Locked)
+                        </h2>
+                        <p className="text-sm font-black text-zinc-900 uppercase">
+                          Bay {selectedBay} — Restricted to Area {user.area} Operational Station
+                        </p>
+                      </div>
+                      <div className="text-xs font-mono font-bold bg-amber-50 border-2 border-[#141414] px-4 py-2 rounded-sm shadow-[2px_2px_0px_#141414] text-amber-950 uppercase">
+                        🛡️ Safety Enforced View
+                      </div>
+                    </div>
+                  );
+                }
+              })()}
 
               {/* Shop Floor Bay Runway Grid Display (Adaptive horizontal or mobile-friendly vertical layout) */}
               <BayVisualization 
@@ -878,6 +904,19 @@ export default function App() {
               <AdminJobsTracker
                 requests={requests}
                 cranes={cranes}
+              />
+            </div>
+          )}
+
+          {/* Page 6.6: Admin Manage Users */}
+          {activePage === "manage_users" && user?.role === "Admin" && (
+            <div id="admin_manage_users_page">
+              <ManageUsers
+                users={users}
+                cranes={cranes}
+                onAddUser={handleAddUser}
+                onUpdateUser={handleUpdateUser}
+                onDeleteUser={handleDeleteUser}
               />
             </div>
           )}

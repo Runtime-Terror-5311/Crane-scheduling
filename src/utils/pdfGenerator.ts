@@ -566,3 +566,247 @@ export function generateScheduledHistoryPDF(
   doc.save(`scheduled_jobs_history_${new Date().toISOString().split("T")[0]}.pdf`);
 }
 
+export function generateJobsTrackerPDF(requests: CraneRequest[], reqIdToDownload: string) {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4"
+  });
+
+  const now = new Date();
+
+  // Helper to calculate hours
+  const getHoursDiff = (start: string, end: string): number => {
+    if (!start || !end) return 0;
+    const [startH, startM] = start.split(":").map(Number);
+    const [endH, endM] = end.split(":").map(Number);
+    let startTotal = (startH || 0) * 60 + (startM || 0);
+    let endTotal = (endH || 0) * 60 + (endM || 0);
+    if (endTotal < startTotal) {
+      endTotal += 24 * 60;
+    }
+    return (endTotal - startTotal) / 60;
+  };
+
+  const getFormattedCranes = (reqItem: CraneRequest): string => {
+    const allocs = reqItem.craneAllocations || [];
+    const cranes = Array.from(new Set(allocs.map(a => a.craneId)));
+    return cranes.length > 0 ? cranes.join(", ") : (reqItem.mandatoryCrane || "Any");
+  };
+
+  const getCompletionDateTime = (reqItem: CraneRequest) => {
+    const allocs = reqItem.craneAllocations || [];
+    if (allocs.length > 0) {
+      const sorted = [...allocs].sort((a, b) => {
+        const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return a.endTime.localeCompare(b.endTime);
+      });
+      const latest = sorted[sorted.length - 1];
+      return {
+        date: latest.date,
+        time: latest.endTime
+      };
+    }
+    return {
+      date: reqItem.date || "",
+      time: reqItem.estimatedEndTime || ""
+    };
+  };
+
+  const getStartDateTime = (reqItem: CraneRequest) => {
+    const allocs = reqItem.craneAllocations || [];
+    if (allocs.length > 0) {
+      const sorted = [...allocs].sort((a, b) => {
+        const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return a.startTime.localeCompare(b.startTime);
+      });
+      const earliest = sorted[0];
+      return {
+        date: earliest.date,
+        time: earliest.startTime
+      };
+    }
+    return {
+      date: reqItem.date || "",
+      time: reqItem.estimatedStartTime || ""
+    };
+  };
+
+  const getCompletionTimeRange = (reqItem: CraneRequest): string => {
+    const allocs = reqItem.craneAllocations || [];
+    if (allocs.length > 0) {
+      const sortedByStart = [...allocs].sort((a, b) => a.startTime.localeCompare(b.startTime));
+      const sortedByEnd = [...allocs].sort((a, b) => a.endTime.localeCompare(b.endTime));
+      const start = sortedByStart[0]?.startTime || "N/A";
+      const end = sortedByEnd[sortedByEnd.length - 1]?.endTime || "N/A";
+      return `${start} - ${end}`;
+    }
+    const start = reqItem.estimatedStartTime || "N/A";
+    const end = reqItem.estimatedEndTime || "N/A";
+    if (start === "N/A" && end === "N/A") return "N/A";
+    return `${start} - ${end}`;
+  };
+
+  const getSortTimestamp = (dateStr: string, timeStr: string): number => {
+    if (!dateStr) return Infinity;
+    const finalTime = timeStr || "00:00";
+    const [hours, minutes] = finalTime.split(":").map(Number);
+    const parsedDate = new Date(dateStr);
+    if (isNaN(parsedDate.getTime())) return Infinity;
+    parsedDate.setHours(hours || 0, minutes || 0, 0, 0);
+    return parsedDate.getTime();
+  };
+
+  // Filter based on specific Req ID or All
+  const isAll = reqIdToDownload === "ALL";
+  const mainJobs = isAll 
+    ? requests.filter(r => r.jobType !== "Continuation")
+    : requests.filter(r => r.id === reqIdToDownload);
+
+  // Build the flat list of row items (main jobs + their continuation children)
+  const rowItems: CraneRequest[] = [];
+  mainJobs.forEach((job) => {
+    rowItems.push(job);
+    const childJobs = requests.filter(r => r.parentJobId === job.id && r.jobType === "Continuation");
+    rowItems.push(...childJobs);
+  });
+
+  // Sort chronologically using start date + start time together
+  rowItems.sort((a, b) => {
+    const aInfo = getStartDateTime(a);
+    const bInfo = getStartDateTime(b);
+    const aTime = getSortTimestamp(aInfo.date, aInfo.time);
+    const bTime = getSortTimestamp(bInfo.date, bInfo.time);
+    return aTime - bTime;
+  });
+
+  // Document Title & Styling
+  doc.setFont("Helvetica", "bold");
+  doc.setFontSize(15);
+  doc.setTextColor(15, 23, 42); // slate-900
+  const jobLabel = mainJobs[0]?.machineName || mainJobs[0]?.department || "General Job";
+  const headingText = isAll 
+    ? "MANUFACTURING JOBS TRACKER - MASTER REPORT"
+    : `${reqIdToDownload} - ${jobLabel.toUpperCase()}`;
+  doc.text(headingText, 14, 20);
+  
+  doc.setFont("Helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105); // slate-600
+  doc.text(`Generated on: ${now.toLocaleString()} | Scope: ${isAll ? "All Jobs & Milestones" : `Job ID ${reqIdToDownload} & Milestones`}`, 14, 26);
+
+  // Decorative Steel Line
+  doc.setDrawColor(203, 213, 225); // slate-300
+  doc.setLineWidth(0.5);
+  doc.line(14, 28, 196, 28);
+
+  const tableHeaders = [
+    "Job ID",
+    "Operation Details",
+    "Est. Weight",
+    "Crane Allocated",
+    "Completion Date",
+    "Completion Time Range"
+  ];
+
+  const tableRows = rowItems.map((item) => {
+    const jobID = item.id || "N/A";
+    
+    // let machineName = item.machineName || "";
+    // if (!machineName && item.jobType === "Continuation" && item.parentJobId) {
+    //   const parent = requests.find(r => r.id === item.parentJobId);
+    //   if (parent) {
+    //     machineName = parent.machineName || "";
+    //   }
+    // }
+    // if (!machineName) {
+    //   machineName = item.department || "General Job";
+    // }
+
+    const details = item.details || item.remarks || "N/A";
+    const weight = `${item.estimatedWeight || 0} Tons`;
+    const cranes = getFormattedCranes(item);
+    
+    const compInfo = getCompletionDateTime(item);
+    const compDate = compInfo.date || "N/A";
+    const compTimeRange = getCompletionTimeRange(item);
+
+    return [
+      jobID,
+      details,
+      weight,
+      cranes,
+      compDate,
+      compTimeRange
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 35,
+    head: [tableHeaders],
+    body: tableRows,
+    theme: "striped",
+    styles: { 
+      fontSize: 8, 
+      cellPadding: 2.5, 
+      valign: "middle",
+      lineColor: [226, 232, 240], // slate-200
+      lineWidth: 0.1
+    },
+    headStyles: { 
+      fillColor: [30, 41, 59], // slate-800 (clean minimalist)
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8.5
+    },
+    columnStyles: {
+      0: { cellWidth: 30 },
+      1: { cellWidth: 65 },
+      2: { cellWidth: 20, halign: "center" },
+      3: { cellWidth: 25, halign: "center" },
+      4: { cellWidth: 22, halign: "center" },
+      5: { cellWidth: 20, halign: "center" }
+    },
+    margin: { left: 14, right: 14 }
+  });
+
+  const finalY = (doc as any).lastAutoTable.finalY;
+
+  // Calculate grand total hours of all included row items
+  let grandTotalHours = 0;
+  rowItems.forEach((item) => {
+    const allocs = item.craneAllocations || [];
+    if (allocs.length > 0) {
+      grandTotalHours += allocs.reduce((sum, a) => sum + getHoursDiff(a.startTime, a.endTime), 0);
+    } else {
+      grandTotalHours += getHoursDiff(item.estimatedStartTime, item.estimatedEndTime);
+    }
+  });
+
+  let currentY = finalY + 8;
+  if (currentY > 265) {
+    doc.addPage();
+    currentY = 20;
+  }
+
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225); // slate-300
+  doc.setLineWidth(0.5);
+  doc.rect(14, currentY, 182, 11, "FD");
+
+  doc.setFont("Helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(30, 41, 59); // slate-800
+  doc.text(`TOTAL ACCUMULATED TIME: ${grandTotalHours.toFixed(1)} HOURS`, 18, currentY + 7);
+
+  // Footer
+  doc.setFont("Helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Generated on: ${now.toLocaleString()}  |  Manufacturing Tracker Service`, 14, 287);
+
+  doc.save(`manufacturing_jobs_tracker_${reqIdToDownload}_report.pdf`);
+}
+
