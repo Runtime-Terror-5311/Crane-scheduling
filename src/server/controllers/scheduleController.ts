@@ -268,6 +268,7 @@ export const generateSchedule = (req: Request, res: Response): void => {
         );
         const p1Count = userSchedules.filter((s: any) => s.priority === "P1").length;
         const p2Count = userSchedules.filter((s: any) => s.priority === "P2").length;
+        const p3Count = userSchedules.filter((s: any) => s.priority === "P3").length;
 
         let penalty = 0;
         if (p1Count > 2) {
@@ -275,6 +276,9 @@ export const generateSchedule = (req: Request, res: Response): void => {
         }
         if (p2Count > 3) {
           penalty += (p2Count - 3) * 5;
+        }
+        if (p3Count > 2) {
+          penalty += (p3Count - 2) * 5;
         }
 
         // Count how many instant schedules they created
@@ -962,6 +966,7 @@ export const instantSchedule = (req: Request, res: Response): void => {
         );
         const p1Count = userSchedules.filter((s: any) => s.priority === "P1").length;
         const p2Count = userSchedules.filter((s: any) => s.priority === "P2").length;
+        const p3Count = userSchedules.filter((s: any) => s.priority === "P3").length;
 
         let penalty = 0;
         if (p1Count > 2) {
@@ -969,6 +974,9 @@ export const instantSchedule = (req: Request, res: Response): void => {
         }
         if (p2Count > 3) {
           penalty += (p2Count - 3) * 5;
+        }
+        if (p3Count > 2) {
+          penalty += (p3Count - 2) * 5;
         }
 
         const instantCount = db.requests.filter((r: any) => 
