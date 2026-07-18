@@ -942,6 +942,7 @@ export default function DashboardSupervisor({
                             setParentJobId("");
                             setMachineName("");
                             setDepartment("");
+                            setDetails("");
                           }}
                           className="accent-[#141414] w-4 h-4 cursor-pointer"
                         />
@@ -958,6 +959,7 @@ export default function DashboardSupervisor({
                             setParentJobId("");
                             setMachineName("");
                             setDepartment("");
+                            setDetails("");
                           }}
                           className="accent-[#141414] w-4 h-4 cursor-pointer"
                         />
@@ -1060,7 +1062,7 @@ export default function DashboardSupervisor({
               )}
 
               {/* Details of Shift Work (Only for New Job Type) */}
-              {jobType === "New" && (
+              
                 <div>
                   <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
                     Details of Shift Work (Precisely what will be done in this shift) <span className="text-red-500 font-sans">*</span>
@@ -1073,7 +1075,7 @@ export default function DashboardSupervisor({
                     className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800 focus:outline-none"
                   />
                 </div>
-              )}
+              
 
               {/* Priority, Column Start, Column End, Max Weight Row */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
