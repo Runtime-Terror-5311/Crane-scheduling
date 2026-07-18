@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { readDB, writeDB, logActivity, forceSeedDB } from "../db/db.js";
+import { readDB, writeDB, logActivity, forceSeedDB, recomputeAllUsersPlanningPoints } from "../db/db.js";
 import { scheduleRequests } from "../services/schedulingEngine.js";
 import { ShiftType, PriorityType, ShiftReport } from "../../types.js";
 
@@ -254,42 +254,7 @@ export const generateSchedule = (req: Request, res: Response): void => {
     }
 
     // Now calculate planning points and priority penalties for each Area User
-    db.users.forEach((u: any) => {
-      if (u.planningPoints === undefined) {
-        u.planningPoints = 100;
-      }
-      
-      if (u.role === "Area User" && u.area) {
-        // Find all active schedules in db.schedules that belong to this user's area
-        const userSchedules = db.schedules.filter((s: any) => 
-          Number(s.area) === Number(u.area) && 
-          s.status !== "Completed" && 
-          s.status !== "Cancelled"
-        );
-        const p1Count = userSchedules.filter((s: any) => s.priority === "P1").length;
-        const p2Count = userSchedules.filter((s: any) => s.priority === "P2").length;
-        const p3Count = userSchedules.filter((s: any) => s.priority === "P3").length;
-
-        let penalty = 0;
-        if (p1Count > 2) {
-          penalty += (p1Count - 2) * 10;
-        }
-        if (p2Count > 3) {
-          penalty += (p2Count - 3) * 5;
-        }
-        if (p3Count > 2) {
-          penalty += (p3Count - 2) * 5;
-        }
-
-        // Count how many instant schedules they created
-        const instantCount = db.requests.filter((r: any) => 
-          Number(r.area) === Number(u.area) && 
-          (r.id.startsWith("REQ-INST-") || (r.remarks && r.remarks.includes("Instantly Scheduled")))
-        ).length;
-
-        u.planningPoints = Math.max(0, 100 - (instantCount * 5) - penalty);
-      }
-    });
+    recomputeAllUsersPlanningPoints(db);
 
     writeDB(db);
 
@@ -957,36 +922,7 @@ export const instantSchedule = (req: Request, res: Response): void => {
     db.schedules.push(newSchedule);
 
     // Recompute planning points and priorities dynamic penalties self-correction for all supervisors
-    db.users.forEach((u: any) => {
-      if (u.role === "Area User" && u.area) {
-        const userSchedules = db.schedules.filter((s: any) => 
-          Number(s.area) === Number(u.area) && 
-          s.status !== "Completed" && 
-          s.status !== "Cancelled"
-        );
-        const p1Count = userSchedules.filter((s: any) => s.priority === "P1").length;
-        const p2Count = userSchedules.filter((s: any) => s.priority === "P2").length;
-        const p3Count = userSchedules.filter((s: any) => s.priority === "P3").length;
-
-        let penalty = 0;
-        if (p1Count > 2) {
-          penalty += (p1Count - 2) * 10;
-        }
-        if (p2Count > 3) {
-          penalty += (p2Count - 3) * 5;
-        }
-        if (p3Count > 2) {
-          penalty += (p3Count - 2) * 5;
-        }
-
-        const instantCount = db.requests.filter((r: any) => 
-          Number(r.area) === Number(u.area) && 
-          (r.id.startsWith("REQ-INST-") || (r.remarks && r.remarks.includes("Instantly Scheduled")))
-        ).length;
-
-        u.planningPoints = Math.max(0, 100 - (instantCount * 5) - penalty);
-      }
-    });
+    recomputeAllUsersPlanningPoints(db);
 
     writeDB(db);
 

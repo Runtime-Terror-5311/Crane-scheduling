@@ -278,7 +278,49 @@ export const readDB = (): DatabaseState => {
   return cachedState;
 };
 
+export const recomputeAllUsersPlanningPoints = (db: DatabaseState): void => {
+  if (!db || !db.users || !db.requests) return;
+  db.users.forEach((u: any) => {
+    if (u.planningPoints === undefined) {
+      u.planningPoints = 100;
+    }
+    
+    if (u.role === "Area User" && u.area) {
+      // Find all active requests in db.requests that belong to this user's area
+      const userRequests = db.requests.filter((r: any) => 
+        Number(r.area) === Number(u.area) && 
+        r.status !== "Completed" && 
+        r.status !== "Rejected"
+      );
+      
+      const p1Count = userRequests.filter((r: any) => r.priority === "P1").length;
+      const p2Count = userRequests.filter((r: any) => r.priority === "P2").length;
+      const p3Count = userRequests.filter((r: any) => r.priority === "P3").length;
+
+      let penalty = 0;
+      if (p1Count > 2) {
+        penalty += (p1Count - 2) * 10;
+      }
+      if (p2Count > 2) {
+        penalty += (p2Count - 2) * 5;
+      }
+      if (p3Count > 2) {
+        penalty += (p3Count - 2) * 5;
+      }
+
+      // Count how many instant schedules they created
+      const instantCount = db.requests.filter((r: any) => 
+        Number(r.area) === Number(u.area) && 
+        (r.id.startsWith("REQ-INST-") || (r.remarks && r.remarks.includes("Instantly Scheduled")))
+      ).length;
+
+      u.planningPoints = Math.max(0, 100 - (instantCount * 5) - penalty);
+    }
+  });
+};
+
 export const writeDB = (state: DatabaseState): void => {
+  recomputeAllUsersPlanningPoints(state);
   cachedState = state;
   isDirty = true;
 };
