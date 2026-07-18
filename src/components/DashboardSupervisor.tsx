@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { CraneRequest, User, ShiftType, PriorityType, Crane } from "../types";
 import { getCurrentShift, getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
+import CraneAllocationsTable from "./CraneAllocationsTable";
 
 interface DashboardSupervisorProps {
   user: User;
@@ -337,6 +338,7 @@ export default function DashboardSupervisor({
   const [priority, setPriority] = useState<PriorityType>("P3");
   const [remarks, setRemarks] = useState("");
   const [details, setDetails] = useState("");
+  const [machineName, setMachineName] = useState("");
   const [mandatoryCrane, setMandatoryCrane] = useState<string>("Any");
   const [formError, setFormError] = useState("");
   const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
@@ -418,10 +420,20 @@ export default function DashboardSupervisor({
       return;
     }
 
-    if (!details.trim()) {
-      setFormError("Shift work details is a required field. Please specify precisely what will be done.");
+    if (!machineName.trim()) {
+      setFormError("The name of the machine to be manufactured is required. Please specify (e.g. Manufacturing of VVVF drive crane).");
       return;
     }
+
+    let finalName = machineName;
+    if (jobType === "Continuation" && !finalName.trim()) {
+      finalName = `Continuation of parent job ${parentJobId} `;
+    }
+
+    // if (!finalDetails.trim()) {
+    //   setFormError("Shift work details is a required field. Please specify precisely what will be done.");
+    //   return;
+    // }
 
     setIsSubmitting(true);
     try {
@@ -444,6 +456,7 @@ export default function DashboardSupervisor({
           estimatedWeight: weight,
           priority,
           remarks,
+          machineName: finalName,
           details,
           mandatoryCrane,
           date,
@@ -463,6 +476,7 @@ export default function DashboardSupervisor({
       setDepartment("");
       setRemarks("");
       setDetails("");
+      setMachineName("");
       setMandatoryCrane("Any");
       setJobType("New");
       setParentJobId("");
@@ -789,6 +803,8 @@ export default function DashboardSupervisor({
                               </div>
                             )}
 
+                            <CraneAllocationsTable request={req} />
+
                             {/* Row Deletion Action */}
                             {(req.status === "Draft" || req.status === "Submitted") && allowed && (
                               <button
@@ -911,7 +927,7 @@ export default function DashboardSupervisor({
                   <span className="text-amber-950 uppercase tracking-tight text-[11px] font-black font-mono">Job Continuity Identifier</span>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block text-[10px] uppercase font-mono font-black text-amber-900 mb-1.5">Requirement Registry Mode</label>
                     <div className="flex gap-4">
@@ -924,6 +940,8 @@ export default function DashboardSupervisor({
                           onChange={() => {
                             setJobType("New");
                             setParentJobId("");
+                            setMachineName("");
+                            setDepartment("");
                           }}
                           className="accent-[#141414] w-4 h-4 cursor-pointer"
                         />
@@ -935,152 +953,144 @@ export default function DashboardSupervisor({
                           name="jobType"
                           value="Continuation"
                           checked={jobType === "Continuation"}
-                          onChange={() => setJobType("Continuation")}
+                          onChange={() => {
+                            setJobType("Continuation");
+                            setParentJobId("");
+                            setMachineName("");
+                            setDepartment("");
+                          }}
                           className="accent-[#141414] w-4 h-4 cursor-pointer"
                         />
                         <span>Continuation of Existing Job</span>
                       </label>
                     </div>
                   </div>
-
-                  {jobType === "Continuation" && (
-                    <div>
-                      <label className="block text-[10px] uppercase font-mono font-black text-amber-900 mb-1.5">Select Original/Parent Job</label>
-                      <select
-                        required={jobType === "Continuation"}
-                        value={parentJobId}
-                        onChange={(e) => {
-                          const pId = e.target.value;
-                          setParentJobId(pId);
-                        }}
-                        className="w-full p-2 bg-white border-2 border-amber-600 rounded-sm text-zinc-900 font-bold font-mono text-xs"
-                      >
-                        <option value="">-- Choose active or previous job --</option>
-                        {requests.filter(r => r.id && !r.id.includes("-CONT-")).map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.id} - {r.department} (Cols {r.startColumn}-{r.endColumn})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* Form Area Selection Row */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                
-                {/* Bay Selector (Critical 7 Bay Requirement) */}
-                <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Target Bay Runway</label>
-                  <select
-                    value={bay}
-                    onChange={(e) => setBay(e.target.value)}
-                    disabled={user.role !== "Admin"}
-                    className={`w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black uppercase font-mono ${
-                      user.role !== "Admin" ? "opacity-70 bg-zinc-50 cursor-not-allowed" : ""
-                    }`}
-                  >
-                    {bays.map((b) => (
-                      <option key={b} value={b}>Bay {b}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Area Selector */}
-                <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Shop Floor Area</label>
-                  <select
-                    disabled={user.role !== "Admin"}
-                    value={selectedFormArea}
-                    onChange={(e) => {
-                      const areaNum = Number(e.target.value);
-                      setSelectedFormArea(areaNum);
-                      const cols = getColumnsForArea(areaNum);
-                      setStartColumn(cols.min + 2);
-                      setEndColumn(cols.min + 4);
-                    }}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
-                  >
-                    {getAreasForBay(bay).map((areaNum) => {
-                      const cols = getColumnsForArea(areaNum);
-                      return (
-                        <option key={areaNum} value={areaNum}>
-                          Area {areaNum} (Cols {cols.min}-{cols.max})
-                        </option>
-                      );
-                    })}
-                  </select>
-                  {user.role !== "Admin" && (
-                    <p className="text-[10px] text-zinc-400 mt-1 font-mono font-semibold">Locked to your assigned supervisor Area {user.area}.</p>
-                  )}
-                </div>
-
-                {/* Shift Selector */}
-                <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Working Shift</label>
-                  <select
-                    value={shift}
-                    onChange={(e) => setShift(e.target.value as ShiftType)}
-                    disabled={!!getForcedShiftForWindow(currentTime)}
-                    className={`w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black ${getForcedShiftForWindow(currentTime) ? 'opacity-70 bg-zinc-100 cursor-not-allowed' : ''}`}
-                  >
-                    <option value="Shift A">Shift A (06:00 AM - 02:00 PM)</option>
-                    <option value="Shift B">Shift B (02:00 PM - 10:00 PM)</option>
-                    <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
-                    <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
-                  </select>
-                  {getForcedShiftForWindow(currentTime) && (
-                    <p className="text-[10px] text-amber-600 mt-1.5 font-mono font-bold">⚠️ Locked to {getForcedShiftForWindow(currentTime)} during handover window.</p>
-                  )}
-                </div>
-
-                {/* Requirement Date Selector */}
-                <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Requirement Date</label>
-                  <div className="relative">
+              {/* Conditional Row: Job Name (New) or Select Parent Job (Continuation) */}
+              {jobType === "New" ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                      Job Name (Machine Being Manufactured) <span className="text-red-500 font-sans">*</span>
+                    </label>
                     <input
-                      type="date"
+                      type="text"
                       required
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black font-mono focus:outline-none"
+                      placeholder="e.g. Manufacturing of VVVF drive crane"
+                      value={machineName}
+                      onChange={(e) => setMachineName(e.target.value)}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-bold text-xs text-amber-900 focus:ring-0 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                      Department / Cost Center Costing <span className="text-red-500 font-sans">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Mechanical Machining Shop"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-bold text-xs focus:ring-0 focus:outline-none"
                     />
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-amber-900 mb-1.5">
+                      Select Original/Parent Job (Req ID & Job Name) <span className="text-red-500 font-sans">*</span>
+                    </label>
+                    <select
+                      required={jobType === "Continuation"}
+                      value={parentJobId}
+                      onChange={(e) => {
+  const pId = e.target.value;
+  setParentJobId(pId);
+  const pReq = requests.find((r) => r.id === pId);
+  if (pReq) {
+    const label = pReq.machineName || "Unnamed Job";
+    setMachineName(` ${label}`);
+  } else {
+    setMachineName("");
+  }
+}}
+                      className="w-full p-2.5 bg-white border-2 border-amber-600 rounded-sm text-zinc-900 font-bold font-mono text-xs focus:ring-0 focus:outline-none"
+                    >
+                      <option value="">-- Choose active or previous job --</option>
+                      {requests.filter(r => r.id && !r.id.includes("-CONT-")).map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.id} - {r.machineName || r.department || "No Name"} (Cols {r.startColumn}-{r.endColumn})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              {/* Department and Priority */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                      Selected Job Name <span className="text-zinc-400 font-sans font-normal">(Auto-fetched)</span>
+                    </label>
+                    <input
+                      type="text"
+                      disabled
+                      placeholder="Select parent job first"
+                      value={machineName}
+                      className="w-full p-2.5 bg-zinc-100 border-2 border-zinc-300 rounded-sm font-bold text-xs text-zinc-700 cursor-not-allowed focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                      Department / Cost Center Costing <span className="text-red-500 font-sans">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Mechanical Machining Shop"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-bold text-xs focus:ring-0 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Details of Shift Work (Only for New Job Type) */}
+              {jobType === "New" && (
                 <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Department / Cost Center Costing</label>
-                  <input
-                    type="text"
+                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                    Details of Shift Work (Precisely what will be done in this shift) <span className="text-red-500 font-sans">*</span>
+                  </label>
+                  <textarea
                     required
-                    placeholder="e.g. Mechanical Machining Shop"
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-bold text-xs"
+                    placeholder="Mention precisely what will be done (e.g., welding of this part, assembly of main stator, machining of rotor body, etc.)"
+                    value={details}
+                    onChange={(e) => setDetails(e.target.value)}
+                    className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800 focus:outline-none"
                   />
                 </div>
+              )}
 
+              {/* Priority, Column Start, Column End, Max Weight Row */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Operations Priority Rating</label>
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as PriorityType)}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black"
+                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black text-xs focus:ring-0 focus:outline-none"
                   >
-                    <option value="P1">P1 Critical (Hot metal, urgent line stop)</option>
-                    <option value="P2">P2 Urgent (Production shift buffer replenishment)</option>
-                    <option value="P3">P3 Normal (Standard transposition)</option>
-                    <option value="P4">P4 Planned (Overhaul, non-time-critical)</option>
+                    <option value="P1">P1 Critical </option>
+                    <option value="P2">P2 Urgent </option>
+                    <option value="P3">P3 Normal </option>
+                    <option value="P4">P4 Planned </option>
                   </select>
                 </div>
-              </div>
 
-              {/* Columns and Weight Limits */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Start Runway Column (1-30)</label>
                   <input
@@ -1090,7 +1100,7 @@ export default function DashboardSupervisor({
                     max={30}
                     value={startColumn}
                     onChange={(e) => setStartColumn(Number(e.target.value))}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono"
+                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono focus:ring-0 focus:outline-none"
                   />
                 </div>
 
@@ -1103,7 +1113,7 @@ export default function DashboardSupervisor({
                     max={30}
                     value={endColumn}
                     onChange={(e) => setEndColumn(Number(e.target.value))}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono"
+                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono focus:ring-0 focus:outline-none"
                   />
                 </div>
 
@@ -1115,12 +1125,12 @@ export default function DashboardSupervisor({
                     min={1}
                     value={weight}
                     onChange={(e) => setWeight(Number(e.target.value))}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono"
+                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono focus:ring-0 focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Time Span Windows and Preferred Crane */}
+              {/* Estimated Start, Estimated End and Preferred Crane Row */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Estimated Start (12-Hr AM/PM)</label>
@@ -1235,7 +1245,7 @@ export default function DashboardSupervisor({
                   <select
                     value={mandatoryCrane}
                     onChange={(e) => setMandatoryCrane(e.target.value)}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-amber-800 font-black"
+                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-amber-800 font-black focus:ring-0 focus:outline-none"
                   >
                     <option value="Any">Any Available Gantry</option>
                     {cranes.filter(c => {
@@ -1249,31 +1259,6 @@ export default function DashboardSupervisor({
                     ))}
                   </select>
                 </div>
-              </div>
-
-              {/* Shift Details Box */}
-              <div>
-                <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
-                  Details of Shift Work (Precisely what will be done in this shift) <span className="text-red-500 font-sans">*</span>
-                </label>
-                <textarea
-                  required
-                  placeholder="Mention precisely what will be done (e.g., welding of this part, assembly of main stator, machining of rotor body, etc.)"
-                  value={details}
-                  onChange={(e) => setDetails(e.target.value)}
-                  className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800 focus:outline-none"
-                />
-              </div>
-
-              {/* Remarks Box */}
-              <div>
-                <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Special Instruction Notes / Hoisting Objectives</label>
-                <textarea
-                  placeholder="e.g., Relocate stamping die B4 from columns 4 to 8. Safe gantry buffer cleared."
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800"
-                />
               </div>
 
               {/* Form Submit buttons */}
@@ -1386,9 +1371,18 @@ export default function DashboardSupervisor({
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-sm font-black uppercase border ${
                             req.status === "Completed" || req.completionPercentage === 100
                               ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                              : req.status === "Deferred"
+                              ? "bg-rose-100 text-rose-800 border-rose-300 animate-pulse"
                               : "bg-blue-100 text-blue-800 border-blue-300"
                           }`}>
                             {req.status === "Completed" || req.completionPercentage === 100 ? "Completed" : req.status}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-sm font-black uppercase border ${
+                            req.status === "Deferred"
+                              ? "bg-rose-100 text-rose-800 border-rose-300"
+                              : "bg-zinc-100 text-zinc-600 border-zinc-300"
+                          }`}>
+                            Deferred: {req.status === "Deferred" ? "YES" : "NO"}
                           </span>
                         </div>
                         <div className="text-[11px] text-zinc-600 font-sans font-bold">
@@ -1399,6 +1393,7 @@ export default function DashboardSupervisor({
                             <strong>Work Details:</strong> {req.details}
                           </div>
                         )}
+                        <CraneAllocationsTable request={req} />
                       </div>
 
                       <div className="flex flex-col gap-1 w-full md:w-64">
@@ -1679,6 +1674,8 @@ function VerificationRow({ req, user, onRefresh }: VerificationRowProps) {
           <span>Timestamp: <strong>{req.verificationTime ? new Date(req.verificationTime).toLocaleString() : "Not Recorded"}</strong></span>
         </div>
       )}
+
+      <CraneAllocationsTable request={req} />
     </div>
   );
 }

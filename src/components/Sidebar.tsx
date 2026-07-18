@@ -13,7 +13,8 @@ import {
   Sliders,
   Calendar,
   Cpu,
-  Database
+  Database,
+  Clock
 } from "lucide-react";
 import { User } from "../types";
 
@@ -21,8 +22,8 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   user: User;
-  activePage: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management";
-  setActivePage: (page: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management") => void;
+  activePage: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management" | "jobs_tracker";
+  setActivePage: (page: "home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management" | "jobs_tracker") => void;
   onLogout: () => void;
   selectedBay: string;
 }
@@ -81,6 +82,12 @@ export default function Sidebar({
       icon: Calendar
     },
     ...(user.role === "Admin" ? [
+      {
+        id: "jobs_tracker" as const,
+        label: "Jobs & Cranes Tracker",
+        description: "View done & in-progress job details",
+        icon: Clock
+      },
       {
         id: "admin" as const,
         label: "Admin Panel",

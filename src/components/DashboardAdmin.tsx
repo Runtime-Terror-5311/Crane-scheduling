@@ -16,10 +16,13 @@ import {
   AlertTriangle,
   Database,
   Download,
+  Clock,
+  Activity,
 } from "lucide-react";
 import { Crane, User, CraneRequest, Schedule, AuditLog, ShiftReport, PriorityType } from "../types";
-import { getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
+import { getBayForArea, getColumnsForArea, getAreasForBay, getCurrentShift } from "../utils/shiftUtils";
 import { generateDateWisePDF } from "../utils/pdfGenerator";
+import CraneAllocationsTable from "./CraneAllocationsTable";
 
 interface DashboardAdminProps {
   user: User;
@@ -68,7 +71,12 @@ export default function DashboardAdmin({
   onDeleteUser,
   onReopenRequest,
 }: DashboardAdminProps) {
-  const [activeTab, setActiveTab] = useState<"analytics" | "cranes" | "users" | "requests" | "reports" | "settings">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "cranes" | "users" | "requests" | "reports" | "settings" | "jobs-tracker">("analytics");
+
+  // Job Allocation Tracker state hooks
+  const [trackerSearch, setTrackerSearch] = useState("");
+  const [trackerStatus, setTrackerStatus] = useState<"All" | "In-Progress" | "Completed">("All");
+  const [trackerPriority, setTrackerPriority] = useState<"All" | "P1" | "P2" | "P3">("All");
 
   // User CRUD states
   const [newEmpId, setNewEmpId] = useState("");
@@ -168,7 +176,16 @@ export default function DashboardAdmin({
   const draft = requests.filter((r) => r.status === "Draft").length;
 
   const calculateUtil = (craneId: string): number => {
-    const craneJobs = schedules.filter((s) => s.assignedCrane === craneId);
+    const todayStr = new Date().toISOString().split("T")[0];
+    const currShift = getCurrentShift(new Date());
+    const craneJobs = schedules.filter((s) => {
+      if (s.assignedCrane !== craneId) return false;
+      const origReq = requests.find((r) => r.id === s.requestId);
+      const schedDate = origReq?.date || (origReq?.createdAt ? origReq.createdAt.split("T")[0] : todayStr);
+      const schedShift = origReq?.shift || "General Shift";
+      return schedDate === todayStr && schedShift === currShift;
+    });
+
     let totalMinutes = 0;
     craneJobs.forEach((j) => {
       // simple minutes conversion
@@ -516,6 +533,18 @@ export default function DashboardAdmin({
             <Settings className="w-3.5 h-3.5" /> System Limits
           </div>
         </button>
+        <button
+          onClick={() => setActiveTab("jobs-tracker")}
+          className={`px-4 py-2 border-t-2 border-x-2 transition-colors rounded-t-sm ${
+            activeTab === "jobs-tracker"
+              ? "border-[#141414] bg-zinc-100 text-[#141414] font-black animate-pulse"
+              : "border-transparent text-zinc-500 hover:text-[#141414]"
+          }`}
+        >
+          <div className="flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5 text-amber-600 font-bold" /> Jobs & Cranes Tracker
+          </div>
+        </button>
       </div>
 
       {/* High Visibility Pending Jobs Monitor - Tells Whose Job Is Pending */}
@@ -621,9 +650,14 @@ export default function DashboardAdmin({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              {/* Visual Gantry Occupancy % Charts */}
             <div className="bg-white p-5 rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414] space-y-4">
-              <h3 className="font-bold text-zinc-900 text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-zinc-200 pb-2">
-                <TrendingUp className="w-4 h-4 text-emerald-600" />
-                Gantry Workload Occupancy (Shift Capacity)
+              <h3 className="font-bold text-zinc-900 text-xs uppercase tracking-wider flex items-center justify-between border-b border-zinc-200 pb-2">
+                <span className="flex items-center gap-1.5">
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  Gantry Occupancy (% of 8-Hr {getCurrentShift(new Date())})
+                </span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded-sm font-mono font-bold uppercase tracking-tight">
+                  current day
+                </span>
               </h3>
               <div className="space-y-4 font-mono text-xs">
                 {top3Cranes.map((tc, idx) => (
@@ -1124,63 +1158,74 @@ export default function DashboardAdmin({
                   </tr>
                 ) : (
                   requests.filter((r) => r.status !== "Completed").map((req) => (
-                    <tr key={req.id} className="hover:bg-zinc-50/50">
-                      <td className="p-3 font-black text-[#141414]">{req.id}</td>
-                      <td className="p-3 font-black text-zinc-600">Area {req.area}</td>
-                      <td className="p-3 text-[#141414] font-sans font-bold">{req.department}</td>
-                      <td className="p-3 font-black">
-                        {req.startColumn !== undefined && req.endColumn !== undefined ? `${req.startColumn}-${req.endColumn}` : req.column}
-                      </td>
-                      <td className="p-3 text-zinc-500">{req.estimatedStartTime}-{req.estimatedEndTime}</td>
-                      <td className="p-3 font-black">{req.estimatedWeight}T</td>
-                      <td className="p-3">
-                        <span
-                          className={`font-black px-2 py-0.5 rounded-sm text-[9px] uppercase border ${
-                            req.priority === "P1"
-                              ? "bg-red-50 text-red-800 border-red-300"
-                              : req.priority === "P2"
-                              ? "bg-amber-50 text-amber-800 border-amber-300"
-                              : req.priority === "P3"
-                              ? "bg-zinc-100 text-[#141414] border-zinc-300"
-                              : "bg-zinc-50 text-zinc-600 border-zinc-200"
-                          }`}
-                        >
-                          {req.priority}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span
-                          className={`font-black px-2 py-0.5 rounded-sm text-[9px] uppercase border ${
-                            req.status === "Draft"
-                              ? "bg-amber-50 text-amber-700 border-amber-300"
-                              : req.status === "Submitted"
-                              ? "bg-zinc-100 text-zinc-800 border-zinc-400"
-                              : req.status === "Scheduled"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                              : "bg-red-50 text-red-700 border-red-300"
-                          }`}
-                        >
-                          {req.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        {req.status === "Submitted" && (
-                          <button
-                            onClick={() => onReopenRequest(req.id)}
-                            className="px-2 py-1 bg-amber-500 hover:bg-amber-600 border border-[#141414] text-slate-950 rounded-sm text-[10px] font-sans font-black uppercase tracking-wider"
-                            title="Allows supervisor to edit again"
+                    <React.Fragment key={req.id}>
+                      <tr className="hover:bg-zinc-50/50">
+                        <td className="p-3 font-black text-[#141414]">{req.id}</td>
+                        <td className="p-3 font-black text-zinc-600">Area {req.area}</td>
+                        <td className="p-3 text-[#141414] font-sans font-bold">{req.department}</td>
+                        <td className="p-3 font-black">
+                          {req.startColumn !== undefined && req.endColumn !== undefined ? `${req.startColumn}-${req.endColumn}` : req.column}
+                        </td>
+                        <td className="p-3 text-zinc-500">{req.estimatedStartTime}-{req.estimatedEndTime}</td>
+                        <td className="p-3 font-black">{req.estimatedWeight}T</td>
+                        <td className="p-3">
+                          <span
+                            className={`font-black px-2 py-0.5 rounded-sm text-[9px] uppercase border ${
+                              req.priority === "P1"
+                                ? "bg-red-50 text-red-800 border-red-300"
+                                : req.priority === "P2"
+                                ? "bg-amber-50 text-amber-800 border-amber-300"
+                                : req.priority === "P3"
+                                ? "bg-zinc-100 text-[#141414] border-zinc-300"
+                                : "bg-zinc-50 text-zinc-600 border-zinc-200"
+                            }`}
                           >
-                            Reopen to Draft
-                          </button>
-                        )}
-                        {req.status === "Draft" && (
-                          <span className="text-zinc-500 text-[10px] font-bold">Awaiting Submission</span>
-                        )}
-                        {req.status === "Scheduled" && (
-                          <span className="text-emerald-700 font-black text-[10px] uppercase">Allotted</span>
-                        )}
-                      </td>
-                    </tr>
+                            {req.priority}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={`font-black px-2 py-0.5 rounded-sm text-[9px] uppercase border ${
+                              req.status === "Draft"
+                                ? "bg-amber-50 text-amber-700 border-amber-300"
+                                : req.status === "Submitted"
+                                ? "bg-zinc-100 text-zinc-800 border-zinc-400"
+                                : req.status === "Scheduled"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                : "bg-red-50 text-red-700 border-red-300"
+                            }`}
+                          >
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right">
+                          {req.status === "Submitted" && (
+                            <button
+                              onClick={() => onReopenRequest(req.id)}
+                              className="px-2 py-1 bg-amber-500 hover:bg-amber-600 border border-[#141414] text-slate-950 rounded-sm text-[10px] font-sans font-black uppercase tracking-wider"
+                              title="Allows supervisor to edit again"
+                            >
+                              Reopen to Draft
+                            </button>
+                          )}
+                          {req.status === "Draft" && (
+                            <span className="text-zinc-500 text-[10px] font-bold">Awaiting Submission</span>
+                          )}
+                          {req.status === "Scheduled" && (
+                            <span className="text-emerald-700 font-black text-[10px] uppercase">Allotted</span>
+                          )}
+                        </td>
+                      </tr>
+                      {req.craneAllocations && req.craneAllocations.length > 0 && (
+                        <tr className="bg-zinc-50/50">
+                          <td colSpan={9} className="p-3 bg-zinc-50/50 border-b border-zinc-200">
+                            <div className="max-w-3xl">
+                              <CraneAllocationsTable request={req} />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))
                 )}
               </tbody>
@@ -1726,6 +1771,292 @@ export default function DashboardAdmin({
                 {seeding ? "Reseeding Database..." : "Reset & Seed Facility Data"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Jobs & Cranes Tracker Tab */}
+      {activeTab === "jobs-tracker" && (
+        <div className="space-y-6">
+          {/* Header Description */}
+          <div className="bg-[#141414] text-white p-5 rounded-sm border-2 border-[#141414] shadow-[4px_4px_0px_#141414]">
+            <h2 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-500 animate-pulse" />
+              Comprehensive Crane Allocation & Manufacturing Duration Tracker
+            </h2>
+            <p className="text-[11px] text-zinc-400 font-mono mt-1 font-bold">
+              Analyze cumulative crane usage, operated areas, track locations, and the total manufacturing hours utilized to process each individual job.
+            </p>
+          </div>
+
+          {/* Aggregates Dashboard Row */}
+          {(() => {
+            const completedJobs = requests.filter((r) => r.status === "Completed");
+            const inProgressJobs = requests.filter((r) => r.status === "Draft" || r.status === "Submitted" || r.status === "Scheduled");
+            
+            // Calculate total accumulated crane hours across ALL requests
+            const calculateHours = (startTime: string, endTime: string): number => {
+              if (!startTime || !endTime) return 0;
+              const [startH, startM] = startTime.split(":").map(Number);
+              const [endH, endM] = endTime.split(":").map(Number);
+              let startTotal = (startH || 0) * 60 + (startM || 0);
+              let endTotal = (endH || 0) * 60 + (endM || 0);
+              if (endTotal < startTotal) {
+                endTotal += 24 * 60;
+              }
+              return (endTotal - startTotal) / 60;
+            };
+
+            let grandTotalHours = 0;
+            requests.forEach((r) => {
+              const allocs = r.craneAllocations || [];
+              allocs.forEach((a) => {
+                grandTotalHours += calculateHours(a.startTime, a.endTime);
+              });
+            });
+
+            const totalTonnage = completedJobs.reduce((sum, r) => sum + (Number(r.estimatedWeight) || 0), 0);
+
+            return (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 font-mono">
+                <div className="p-4 bg-emerald-50 border-2 border-[#141414] rounded-sm shadow-[3px_3px_0px_#141414]">
+                  <span className="text-zinc-500 text-[9px] uppercase font-black block leading-none mb-1">Completely Done</span>
+                  <div className="text-xl font-black text-emerald-800">{completedJobs.length} Jobs</div>
+                  <span className="text-[9px] text-zinc-400 font-bold mt-1 block">Status: Verified & Finished</span>
+                </div>
+
+                <div className="p-4 bg-amber-50 border-2 border-[#141414] rounded-sm shadow-[3px_3px_0px_#141414]">
+                  <span className="text-zinc-500 text-[9px] uppercase font-black block leading-none mb-1">In Progress / Queue</span>
+                  <div className="text-xl font-black text-amber-800">{inProgressJobs.length} Jobs</div>
+                  <span className="text-[9px] text-zinc-400 font-bold mt-1 block">Scheduled, Submitted, or Draft</span>
+                </div>
+
+                <div className="p-4 bg-zinc-50 border-2 border-[#141414] rounded-sm shadow-[3px_3px_0px_#141414]">
+                  <span className="text-zinc-500 text-[9px] uppercase font-black block leading-none mb-1">Accumulated Crane Hours</span>
+                  <div className="text-xl font-black text-[#141414]">{grandTotalHours.toFixed(1)} Hrs</div>
+                  <span className="text-[9px] text-zinc-400 font-bold mt-1 block">Across All Gantry Allocations</span>
+                </div>
+
+                <div className="p-4 bg-zinc-50 border-2 border-[#141414] rounded-sm shadow-[3px_3px_0px_#141414]">
+                  <span className="text-zinc-500 text-[9px] uppercase font-black block leading-none mb-1">Completed Cargo Handled</span>
+                  <div className="text-xl font-black text-amber-900">{totalTonnage.toFixed(0)} Tons</div>
+                  <span className="text-[9px] text-zinc-400 font-bold mt-1 block">From Completed Shipments</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Filtering Control Bar */}
+          <div className="bg-zinc-100 p-4 border-2 border-[#141414] rounded-sm shadow-[3px_3px_0px_#141414] flex flex-wrap items-center gap-4 font-mono text-xs">
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Search Identifier / Owner / Details</label>
+              <input
+                type="text"
+                placeholder="Search Job ID, Dept, or Work details..."
+                value={trackerSearch}
+                onChange={(e) => setTrackerSearch(e.target.value)}
+                className="w-full p-2 border-2 border-[#141414] rounded-sm bg-white text-xs font-semibold"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Status Category</label>
+              <select
+                value={trackerStatus}
+                onChange={(e) => setTrackerStatus(e.target.value as any)}
+                className="p-2 border-2 border-[#141414] rounded-sm bg-white font-sans text-xs font-semibold select-none"
+              >
+                <option value="All">All Jobs</option>
+                <option value="In-Progress">In Progress (Draft/Submitted/Scheduled)</option>
+                <option value="Completed">Completely Done (Completed)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] uppercase font-black text-zinc-500 mb-1">Priority Rank</label>
+              <select
+                value={trackerPriority}
+                onChange={(e) => setTrackerPriority(e.target.value as any)}
+                className="p-2 border-2 border-[#141414] rounded-sm bg-white font-sans text-xs font-semibold select-none"
+              >
+                <option value="All">All Priorities</option>
+                <option value="P1">P1 - High Priority</option>
+                <option value="P2">P2 - Standard</option>
+                <option value="P3">P3 - Low Priority</option>
+              </select>
+            </div>
+
+            <button
+              onClick={() => {
+                setTrackerSearch("");
+                setTrackerStatus("All");
+                setTrackerPriority("All");
+              }}
+              className="px-3 py-2 bg-white hover:bg-zinc-200 text-[#141414] border-2 border-[#141414] font-black uppercase text-[10px] rounded-sm active:translate-y-[1px] transition-all cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          </div>
+
+          {/* Master Job List */}
+          <div className="space-y-4">
+            {(() => {
+              // Filtering algorithm
+              const filtered = requests.filter((r) => {
+                // Search query filter
+                const sTerm = trackerSearch.toLowerCase();
+                const matchesSearch = !trackerSearch ||
+                  r.id.toLowerCase().includes(sTerm) ||
+                  (r.department || "").toLowerCase().includes(sTerm) ||
+                  (r.details || "").toLowerCase().includes(sTerm) ||
+                  (r.remarks || "").toLowerCase().includes(sTerm);
+
+                // Status category filter
+                const isInProgress = r.status === "Draft" || r.status === "Submitted" || r.status === "Scheduled";
+                const matchesStatus = trackerStatus === "All" ||
+                  (trackerStatus === "Completed" && r.status === "Completed") ||
+                  (trackerStatus === "In-Progress" && isInProgress);
+
+                // Priority filter
+                const matchesPriority = trackerPriority === "All" || r.priority === trackerPriority;
+
+                return matchesSearch && matchesStatus && matchesPriority;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-zinc-50 border-2 border-dashed border-zinc-300 rounded-sm font-mono">
+                    <AlertTriangle className="w-8 h-8 text-zinc-400 mx-auto mb-2 animate-bounce" />
+                    <p className="text-xs font-black text-zinc-500 uppercase">No Matching Jobs Registered</p>
+                    <p className="text-[10px] text-zinc-400 font-bold mt-1">Adjust search tags or filter parameters to locate the manufactured job.</p>
+                  </div>
+                );
+              }
+
+              return filtered.map((req) => {
+                const isDone = req.status === "Completed";
+                const hasAllocations = req.craneAllocations && req.craneAllocations.length > 0;
+                
+                // Calculate total duration for this request
+                const calculateHours = (startTime: string, endTime: string): number => {
+                  if (!startTime || !endTime) return 0;
+                  const [startH, startM] = startTime.split(":").map(Number);
+                  const [endH, endM] = endTime.split(":").map(Number);
+                  let startTotal = (startH || 0) * 60 + (startM || 0);
+                  let endTotal = (endH || 0) * 60 + (endM || 0);
+                  if (endTotal < startTotal) {
+                    endTotal += 24 * 60;
+                  }
+                  return (endTotal - startTotal) / 60;
+                };
+
+                const totalJobHours = (req.craneAllocations || []).reduce((sum, a) => {
+                  return sum + calculateHours(a.startTime, a.endTime);
+                }, 0);
+
+                return (
+                  <div
+                    key={req.id}
+                    className={`bg-white rounded-sm border-2 border-[#141414] shadow-[3px_3px_0px_#141414] overflow-hidden ${
+                      isDone ? "ring-2 ring-emerald-500/20 bg-emerald-50/5" : ""
+                    }`}
+                  >
+                    {/* Header bar of job card */}
+                    <div className="p-4 border-b-2 border-[#141414] bg-zinc-50 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono font-black text-[11px] text-[#141414] bg-zinc-200 px-2 py-0.5 rounded-sm border border-zinc-400">
+                          ID: {req.id}
+                        </span>
+                        <span className="font-sans font-black text-xs text-[#141414] uppercase tracking-tight">
+                          💼 {req.department}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Priority */}
+                        <span
+                          className={`font-mono font-black px-2 py-0.5 rounded-sm text-[9px] uppercase border ${
+                            req.priority === "P1"
+                              ? "bg-red-50 text-red-800 border-red-300"
+                              : "bg-zinc-100 text-[#141414] border-zinc-200"
+                          }`}
+                        >
+                          {req.priority}
+                        </span>
+
+                        {/* Status */}
+                        {isDone ? (
+                          <span className="font-mono font-black px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-sm text-[9px] uppercase flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" /> Completely Done
+                          </span>
+                        ) : (
+                          <span className="font-mono font-black px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded-sm text-[9px] uppercase flex items-center gap-1 animate-pulse">
+                            <Activity className="w-3 h-3 text-amber-600" /> In Progress
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Specifications Body */}
+                    <div className="p-4 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 font-mono text-xs">
+                        <div>
+                          <span className="text-zinc-400 text-[8px] uppercase font-black block leading-none mb-1">Target Location</span>
+                          <span className="text-[#141414] font-bold">
+                            Area {req.area} (Cols {req.startColumn !== undefined && req.endColumn !== undefined ? `${req.startColumn}-${req.endColumn}` : req.column})
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-400 text-[8px] uppercase font-black block leading-none mb-1">Target Weight</span>
+                          <span className="text-zinc-900 font-bold">
+                            🏋️ {req.estimatedWeight} Tons
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-400 text-[8px] uppercase font-black block leading-none mb-1">Planned Target Window</span>
+                          <span className="text-zinc-600 font-black">
+                            🕒 {req.estimatedStartTime} – {req.estimatedEndTime} ({req.shift})
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-400 text-[8px] uppercase font-black block leading-none mb-1">Combined Crane Usage</span>
+                          <span className="text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-sm font-black inline-block text-[11px]">
+                            ⏱️ {totalJobHours.toFixed(1)} Hours Total
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Work scope description */}
+                      {req.details && (
+                        <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-sm">
+                          <span className="text-zinc-400 uppercase font-black text-[9px] block mb-1 font-mono">Workscope & Fabrication Details</span>
+                          <p className="text-zinc-700 font-sans font-semibold text-xs leading-relaxed">
+                            {req.details}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Cranes Allotted & Track Record */}
+                      <div className="pt-2">
+                        {hasAllocations ? (
+                          <div>
+                            <span className="text-zinc-500 uppercase font-black text-[9px] block mb-1.5 font-mono">
+                              Detailed Manufacturing Log (Gantry Allocation & Dates)
+                            </span>
+                            <CraneAllocationsTable request={req} />
+                          </div>
+                        ) : (
+                          <div className="p-3.5 bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-sm font-mono text-[11px] text-zinc-500 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-zinc-400 animate-pulse"></span>
+                            <span>No active crane hoisting cycles have been recorded yet for this manufacturing job request. Set schedule grid or dispatch gantry override to write audit history.</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       )}

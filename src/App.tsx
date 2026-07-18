@@ -10,6 +10,7 @@ import Sidebar from "./components/Sidebar";
 import CranesSpecifications from "./components/CranesSpecifications";
 import CraneCalendar from "./components/CraneCalendar";
 import CraneManagement from "./components/CraneManagement";
+import AdminJobsTracker from "./components/AdminJobsTracker";
 import { User, Crane, CraneRequest, Schedule, AuditLog, ShiftReport } from "./types";
 import { getCurrentShift, getBayForArea, getAreasForBay } from "./utils/shiftUtils";
 
@@ -18,7 +19,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
 
   // Pages layout state
-  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management">("home");
+  const [activePage, setActivePage] = useState<"home" | "bay_view" | "crane_specs" | "gantt" | "generate" | "admin" | "calendar" | "crane_management" | "jobs_tracker">("home");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Core telemetries
@@ -867,6 +868,16 @@ export default function App() {
                 onUpdateUser={handleUpdateUser}
                 onDeleteUser={handleDeleteUser}
                 onReopenRequest={handleReopenRequest}
+              />
+            </div>
+          )}
+
+          {/* Page 6.5: Admin Jobs & Crane Duration Tracker */}
+          {activePage === "jobs_tracker" && user?.role === "Admin" && (
+            <div id="admin_jobs_tracker_page">
+              <AdminJobsTracker
+                requests={requests}
+                cranes={cranes}
               />
             </div>
           )}

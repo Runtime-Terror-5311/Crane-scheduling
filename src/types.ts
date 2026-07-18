@@ -35,6 +35,17 @@ export interface Crane {
   breakdownEndCol?: number;
 }
 
+export interface CraneAllocationHistory {
+  craneId: string;
+  area: number;
+  startColumn: number;
+  endColumn: number;
+  startTime: string; // "HH:MM"
+  endTime: string;   // "HH:MM"
+  date: string;      // "YYYY-MM-DD"
+  assignedAt: string; // ISO timestamp
+}
+
 export interface CraneRequest {
   id: string; // Auto-generated Request ID
   shift: ShiftType;
@@ -53,6 +64,7 @@ export interface CraneRequest {
   isTandemLift?: boolean;
   status: RequestStatus;
   createdAt: string;
+  machineName?: string; // The name of the machine which will be manufactured
   date?: string; // "YYYY-MM-DD" target date of the requirement
   jobType?: "New" | "Continuation";
   parentJobId?: string;
@@ -61,6 +73,7 @@ export interface CraneRequest {
   isVerified?: boolean;
   verificationTime?: string;
   verifiedBy?: string;
+  craneAllocations?: CraneAllocationHistory[];
 }
 
 export interface Schedule {

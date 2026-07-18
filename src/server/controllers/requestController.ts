@@ -154,6 +154,7 @@ export const createRequest = (req: Request, res: Response): void => {
     const mandatoryCrane = (req.body.mandatoryCrane || "Any") as "Any" | "A1" | "A2" | "A3";
     const isTandemLift = req.body.isTandemLift !== undefined ? Boolean(req.body.isTandemLift) : false;
     const status = req.body.status || "Submitted"; // Default to Submitted as per guidelines/tests
+    const machineName = req.body.machineName || "";
 
     // Enforce shift boundary check
     const boundaryCheck = verifyShiftBoundary(estimatedStartTime, estimatedEndTime, shift);
@@ -171,8 +172,8 @@ export const createRequest = (req: Request, res: Response): void => {
     const jobType = req.body.jobType === "Continuation" ? "Continuation" : "New";
     const parentJobId = req.body.parentJobId || undefined;
     const reqId = jobType === "Continuation" && parentJobId
-      ? `${parentJobId}-CONT-${Math.floor(10 + Math.random() * 90)}`
-      : `REQ-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
+  ? `${parentJobId}-CONT-${Math.floor(10 + Math.random() * 90)}`
+  : `REQ-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     let bay = (req.body.bay || "A").trim().toUpperCase();
     if (mandatoryCrane && mandatoryCrane !== "Any") {
@@ -197,6 +198,7 @@ export const createRequest = (req: Request, res: Response): void => {
       isTandemLift,
       status: status as any,
       createdAt: new Date().toISOString(),
+      machineName,
       date: req.body.date || new Date().toISOString().split("T")[0],
       jobType,
       parentJobId,
@@ -308,6 +310,7 @@ export const updateRequest = (req: Request, res: Response): void => {
       isTandemLift: req.body.isTandemLift !== undefined ? Boolean(req.body.isTandemLift) : (existingReq.isTandemLift || false),
       status: req.body.status ? req.body.status : existingReq.status,
       date: req.body.date || existingReq.date || existingReq.createdAt.split("T")[0],
+      machineName: req.body.machineName !== undefined ? req.body.machineName : existingReq.machineName,
       jobType: req.body.jobType !== undefined ? req.body.jobType : existingReq.jobType,
       parentJobId: req.body.parentJobId !== undefined ? req.body.parentJobId : existingReq.parentJobId,
       details: req.body.details !== undefined ? req.body.details : existingReq.details,

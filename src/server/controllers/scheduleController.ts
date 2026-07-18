@@ -165,16 +165,27 @@ export const generateSchedule = (req: Request, res: Response): void => {
       }
 
       if (r.status === "Submitted") {
-        const isScheduled = schedulerResult.schedules.some((s) => s.requestId === r.id);
+        const foundSchedule = schedulerResult.schedules.find((s) => s.requestId === r.id);
+        const isScheduled = !!foundSchedule;
         const isDeferred = schedulerResult.deferredIds.includes(r.id);
         const isRejected = schedulerResult.rejectedIds.includes(r.id);
 
         if (isDeferred) {
-          return { ...r, status: "Deferred" as const };
+          return { 
+            ...r, 
+            status: "Deferred" as const,
+            estimatedStartTime: foundSchedule ? foundSchedule.startTime : r.estimatedStartTime,
+            estimatedEndTime: foundSchedule ? foundSchedule.endTime : r.estimatedEndTime
+          };
         } else if (isRejected) {
           return { ...r, status: "Rejected" as const };
-        } else if (isScheduled) {
-          return { ...r, status: "Scheduled" as const };
+        } else if (isScheduled && foundSchedule) {
+          return { 
+            ...r, 
+            status: "Scheduled" as const,
+            estimatedStartTime: foundSchedule.startTime,
+            estimatedEndTime: foundSchedule.endTime
+          };
         }
       }
       return r;
@@ -194,6 +205,38 @@ export const generateSchedule = (req: Request, res: Response): void => {
         return { ...crane, status: "Available" as const };
       }
       return crane;
+    });
+
+    // Populate crane allocations history for requests
+    schedulerResult.schedules.forEach((s) => {
+      const req = db.requests.find((r) => r.id === s.requestId);
+      if (req) {
+        if (!req.craneAllocations) {
+          req.craneAllocations = [];
+        }
+        const allocDate = req.date || new Date().toISOString().split("T")[0];
+        
+        // Avoid duplicate log of the same allocation in current batch or history
+        const isDuplicate = req.craneAllocations.some(
+          (a) =>
+            a.craneId === s.assignedCrane &&
+            a.startTime === s.startTime &&
+            a.endTime === s.endTime &&
+            a.date === allocDate
+        );
+        if (!isDuplicate) {
+          req.craneAllocations.push({
+            craneId: s.assignedCrane,
+            area: s.area,
+            startColumn: s.startColumn,
+            endColumn: s.endColumn,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            date: allocDate,
+            assignedAt: new Date().toISOString()
+          });
+        }
+      }
     });
 
     // Update schedules and cranes
@@ -294,6 +337,40 @@ export const overrideSchedule = (req: Request, res: Response): void => {
     };
 
     db.schedules[schedIndex] = updated;
+
+    // Add override allocation to craneAllocations history
+    const targetReq = db.requests.find((r) => r.id === updated.requestId);
+    if (targetReq) {
+      targetReq.estimatedStartTime = updated.startTime;
+      targetReq.estimatedEndTime = updated.endTime;
+      if (updated.startColumn !== undefined) targetReq.startColumn = updated.startColumn;
+      if (updated.endColumn !== undefined) targetReq.endColumn = updated.endColumn;
+
+      if (!targetReq.craneAllocations) {
+        targetReq.craneAllocations = [];
+      }
+      const allocDate = targetReq.date || new Date().toISOString().split("T")[0];
+      
+      const isDuplicate = targetReq.craneAllocations.some(
+        (a) =>
+          a.craneId === updated.assignedCrane &&
+          a.startTime === updated.startTime &&
+          a.endTime === updated.endTime &&
+          a.date === allocDate
+      );
+      if (!isDuplicate) {
+        targetReq.craneAllocations.push({
+          craneId: updated.assignedCrane,
+          area: updated.area,
+          startColumn: updated.startColumn,
+          endColumn: updated.endColumn,
+          startTime: updated.startTime,
+          endTime: updated.endTime,
+          date: allocDate,
+          assignedAt: new Date().toISOString()
+        });
+      }
+    }
 
     logActivity(
       user.employeeId,
@@ -793,6 +870,18 @@ export const instantSchedule = (req: Request, res: Response): void => {
       mandatoryCrane: assignedCrane,
       status: "Scheduled" as const,
       createdAt: new Date().toISOString(),
+      craneAllocations: [
+        {
+          craneId: assignedCrane,
+          area: Number(area) || 1,
+          startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
+          endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
+          startTime,
+          endTime,
+          date: new Date().toISOString().split("T")[0],
+          assignedAt: new Date().toISOString()
+        }
+      ]
     };
 
     // Create Schedule
