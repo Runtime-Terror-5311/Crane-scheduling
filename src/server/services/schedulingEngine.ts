@@ -44,6 +44,7 @@ import {
   PriorityType as GlobalPriorityType,
   ShiftType as GlobalShiftType
 } from "../../types.js";
+import { BAY_AREA_MAPPING } from "../../utils/shiftUtils.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -926,7 +927,20 @@ export function scheduleRequests(
         if (vId === "A2") virtualArea = 2;
         else if (vId === "A3") virtualArea = 3;
       } else {
-        virtualArea = Math.min(Math.max(r.area, 1), Math.min(bayCranes.length, 3));
+        // Map the real-world Area ID to its index in the bay's area list
+        // e.g. for Bay D (numeric "4"), the areas are [4, 12, 19].
+        // Area 4 is index 0 -> virtualArea 1
+        // Area 12 is index 1 -> virtualArea 2
+        // Area 19 is index 2 -> virtualArea 3
+        const rBayLetterMap: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+        const numBay = Object.keys(rBayLetterMap).find(key => rBayLetterMap[key] === bay) || "1";
+        const bayAreas = BAY_AREA_MAPPING[numBay] || [];
+        const idxInBay = bayAreas.indexOf(r.area);
+        if (idxInBay !== -1) {
+          virtualArea = Math.min(idxInBay + 1, Math.min(bayCranes.length, 3));
+        } else {
+          virtualArea = Math.min(Math.max(r.area, 1), Math.min(bayCranes.length, 3));
+        }
       }
       
       return {
