@@ -59,8 +59,8 @@ export const recomputeAllUsersPlanningPoints = (db: DatabaseState): void => {
 
       // Formula: 100 - (P1-2)*5 - (P2-2)*5 - instant*5
       // Only penalize P1/P2 excess beyond 2
-      const p1Penalty = p1Count > 2 ? (p1Count - 2) * 5 : 0;
-      const p2Penalty = p2Count > 2 ? (p2Count - 2) * 5 : 0;
+      const p1Penalty = p1Count > 2 ? (p1Count - 2) * 2 : 0;
+      const p2Penalty = p2Count > 2 ? (p2Count - 2) * 2 : 0;
       const instantPenalty = instantCount * 5;
 
       u.planningPoints = Math.max(0, Math.min(100, 100 - p1Penalty - p2Penalty - instantPenalty));
