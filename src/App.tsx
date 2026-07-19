@@ -652,8 +652,13 @@ export default function App() {
                   {user.role === "Admin" ? "Command Admin" : `Area ${user.area} Lead`}
                 </span>
                 <span className="text-zinc-600"> | </span>
-                <span className="text-emerald-400 font-extrabold">
+                <span className="text-emerald-400 font-extrabold" title={`Active jobs count: P1: ${user.p1Count ?? 0}, P2: ${user.p2Count ?? 0}, Instant: ${user.instantCount ?? 0}`}>
                   {user.planningPoints !== undefined ? user.planningPoints : 100}/100 PLAN POINTS
+                  {user.role === "Area User" && (
+                    <span className="text-zinc-500 text-[10px] ml-1.5 font-normal font-mono">
+                      (P1:{user.p1Count ?? 0} P2:{user.p2Count ?? 0} Inst:{user.instantCount ?? 0})
+                    </span>
+                  )}
                 </span>
               </div>
             </div>

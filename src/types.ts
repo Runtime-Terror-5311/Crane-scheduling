@@ -9,6 +9,9 @@ export interface User {
   email?: string;
   craneNo?: string;
   planningPoints?: number; // 0-100 planning/managerial skill points
+  p1Count?: number;
+  p2Count?: number;
+  instantCount?: number;
 }
 
 export type ShiftType = "Shift A" | "Shift B" | "Shift C" | "General Shift";

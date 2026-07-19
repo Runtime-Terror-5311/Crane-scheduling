@@ -42,19 +42,44 @@ export const login = (req: Request, res: Response): void => {
       name: user.name,
       role: user.role,
       area: user.area,
+      planningPoints: user.planningPoints !== undefined ? user.planningPoints : 100,
+      p1Count: user.p1Count !== undefined ? user.p1Count : 0,
+      p2Count: user.p2Count !== undefined ? user.p2Count : 0,
+      instantCount: user.instantCount !== undefined ? user.instantCount : 0,
     },
   });
 };
 
 export const getMe = (req: Request, res: Response): void => {
   const u = (req as any).user;
-  res.json({ user: u });
+  if (!u) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const db = readDB();
+  const dbUser = db.users.find((user) => user.employeeId.toUpperCase() === u.employeeId.toUpperCase());
+  if (!dbUser) {
+    res.json({ user: u });
+    return;
+  }
+  res.json({
+    user: {
+      employeeId: dbUser.employeeId,
+      name: dbUser.name,
+      role: dbUser.role,
+      area: dbUser.area,
+      planningPoints: dbUser.planningPoints !== undefined ? dbUser.planningPoints : 100,
+      p1Count: dbUser.p1Count !== undefined ? dbUser.p1Count : 0,
+      p2Count: dbUser.p2Count !== undefined ? dbUser.p2Count : 0,
+      instantCount: dbUser.instantCount !== undefined ? dbUser.instantCount : 0,
+    }
+  });
 };
 
 export const getUsers = (req: Request, res: Response): void => {
   const db = readDB();
   // Don't expose password hashes
-  const safeUsers = db.users.map(({ employeeId, name, role, area, phone, email, craneNo }) => ({
+  const safeUsers = db.users.map(({ employeeId, name, role, area, phone, email, craneNo, planningPoints, p1Count, p2Count, instantCount }) => ({
     employeeId,
     name,
     role,
@@ -62,6 +87,10 @@ export const getUsers = (req: Request, res: Response): void => {
     phone: phone || "",
     email: email || "",
     craneNo: craneNo || "",
+    planningPoints: planningPoints !== undefined ? planningPoints : 100,
+    p1Count: p1Count !== undefined ? p1Count : 0,
+    p2Count: p2Count !== undefined ? p2Count : 0,
+    instantCount: instantCount !== undefined ? instantCount : 0,
   }));
   res.json(safeUsers);
 };

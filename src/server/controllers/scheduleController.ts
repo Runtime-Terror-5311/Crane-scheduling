@@ -243,17 +243,6 @@ export const generateSchedule = (req: Request, res: Response): void => {
     db.schedules = [...db.schedules, ...schedulerResult.schedules];
     db.cranes = updatedCranes;
 
-    // Reset or initialize planning points if needed monthly
-    const now = new Date();
-    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    if (!db.settings.lastPointsResetMonth || db.settings.lastPointsResetMonth !== currentMonthStr) {
-      db.users.forEach((u: any) => {
-        u.planningPoints = 100;
-      });
-      db.settings.lastPointsResetMonth = currentMonthStr;
-    }
-
-    // Now calculate planning points and priority penalties for each Area User
     recomputeAllUsersPlanningPoints(db);
 
     writeDB(db);
@@ -776,14 +765,14 @@ export const instantSchedule = (req: Request, res: Response): void => {
     const db = readDB();
 
     // First check and initialize / reset points
-    const now = new Date();
-    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    if (!db.settings.lastPointsResetMonth || db.settings.lastPointsResetMonth !== currentMonthStr) {
-      db.users.forEach((u) => {
-        u.planningPoints = 100;
-      });
-      db.settings.lastPointsResetMonth = currentMonthStr;
-    }
+    // const now = new Date();
+    // const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    // if (!db.settings.lastPointsResetMonth || db.settings.lastPointsResetMonth !== currentMonthStr) {
+    //   db.users.forEach((u) => {
+    //     u.planningPoints = 100;
+    //   });
+    //   db.settings.lastPointsResetMonth = currentMonthStr;
+    // }
 
     // Find current logged user in DB
     const dbUser = db.users.find((u) => u.employeeId.toUpperCase() === user.employeeId.toUpperCase());
@@ -924,21 +913,27 @@ export const instantSchedule = (req: Request, res: Response): void => {
     // Recompute planning points and priorities dynamic penalties self-correction for all supervisors
     recomputeAllUsersPlanningPoints(db);
 
+    // Recompute planning points for all users
+    // recomputeAllUsersPlanningPoints(db);
+
+    // Re-read the updated points from the mutated db object (dbUser is a reference, already updated)
+    const updatedPoints = dbUser.planningPoints ?? 100;
+
     writeDB(db);
 
     logActivity(
       dbUser.employeeId,
       dbUser.name,
       "Instant Schedule Created",
-      `User instantly scheduled request ${reqId} on crane ${assignedCrane} for time ${startTime}-${endTime}. Deducted 5 planning points (Remaining: ${dbUser.planningPoints}).`
+      `User instantly scheduled request ${reqId} on crane ${assignedCrane} for time ${startTime}-${endTime}. Planning points now: ${updatedPoints}.`
     );
 
     res.json({
       success: true,
-      message: `Job instantly scheduled! 5 points deducted. Remaining points: ${dbUser.planningPoints}`,
+      message: `Job instantly scheduled! Planning points updated. Remaining points: ${updatedPoints}`,
       request: newRequest,
       schedule: newSchedule,
-      planningPoints: dbUser.planningPoints
+      planningPoints: updatedPoints,
     });
   } catch (err: any) {
     res.status(500).json({

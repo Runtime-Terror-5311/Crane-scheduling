@@ -33,7 +33,49 @@ const getFallbackState = (): DatabaseState => {
     },
   };
 };
+export const recomputeAllUsersPlanningPoints = (db: DatabaseState): void => {
+  if (!db || !db.users || !db.requests) return;
 
+  db.users.forEach((u: any) => {
+    if (u.role === "Area User" && u.area) {
+      // Count instant requests for this user's area (all statuses)
+      const instantCount = db.requests.filter((r: any) =>
+        Number(r.area) === Number(u.area) &&
+        (r.id.startsWith("REQ-INST-") ||
+          (r.remarks && r.remarks.includes("Instantly Scheduled")))
+      ).length;
+
+      // Count non-instant, active (non-completed, non-rejected) P1 and P2 requests
+      const activeNonInstant = db.requests.filter((r: any) =>
+        Number(r.area) === Number(u.area) &&
+        !r.id.startsWith("REQ-INST-") &&
+        !(r.remarks && r.remarks.includes("Instantly Scheduled")) &&
+        r.status !== "Completed" &&
+        r.status !== "Rejected"
+      );
+
+      const p1Count = activeNonInstant.filter((r: any) => r.priority === "P1").length;
+      const p2Count = activeNonInstant.filter((r: any) => r.priority === "P2").length;
+
+      // Formula: 100 - (P1-2)*5 - (P2-2)*5 - instant*5
+      // Only penalize P1/P2 excess beyond 2
+      const p1Penalty = p1Count > 2 ? (p1Count - 2) * 5 : 0;
+      const p2Penalty = p2Count > 2 ? (p2Count - 2) * 5 : 0;
+      const instantPenalty = instantCount * 5;
+
+      u.planningPoints = Math.max(0, Math.min(100, 100 - p1Penalty - p2Penalty - instantPenalty));
+      u.p1Count = p1Count;
+      u.p2Count = p2Count;
+      u.instantCount = instantCount;
+    } else {
+      // Admins always have full points, no tracking
+      u.planningPoints = 100;
+      u.p1Count = 0;
+      u.p2Count = 0;
+      u.instantCount = 0;
+    }
+  });
+};
 export let cachedState: DatabaseState | null = null;
 export let isMongoConnected = false;
 export let mongoDb: Db | null = null;
@@ -205,13 +247,17 @@ export const refreshStateFromMongo = async (): Promise<void> => {
         maxCranes: settingsDoc.maxCranes ?? 3,
         maintenanceWindowOpen: settingsDoc.maintenanceWindowOpen ?? false,
         systemLocked: settingsDoc.systemLocked ?? false,
+        lastPointsResetMonth: settingsDoc.lastPointsResetMonth ?? "",
       } : {
         bufferTimeMinutes: 5,
         maxCranes: 3,
         maintenanceWindowOpen: false,
         systemLocked: false,
+        lastPointsResetMonth: "",
       },
     };
+
+    recomputeAllUsersPlanningPoints(cachedState);
 
     isDirty = false;
     lastRefreshTime = Date.now();
@@ -276,47 +322,6 @@ export const readDB = (): DatabaseState => {
     throw new Error("Database state is not loaded yet.");
   }
   return cachedState;
-};
-
-export const recomputeAllUsersPlanningPoints = (db: DatabaseState): void => {
-  if (!db || !db.users || !db.requests) return;
-  db.users.forEach((u: any) => {
-    if (u.planningPoints === undefined) {
-      u.planningPoints = 100;
-    }
-    
-    if (u.role === "Area User" && u.area) {
-      // Find all active requests in db.requests that belong to this user's area
-      const userRequests = db.requests.filter((r: any) => 
-        Number(r.area) === Number(u.area) && 
-        r.status !== "Completed" && 
-        r.status !== "Rejected"
-      );
-      
-      const p1Count = userRequests.filter((r: any) => r.priority === "P1").length;
-      const p2Count = userRequests.filter((r: any) => r.priority === "P2").length;
-      const p3Count = userRequests.filter((r: any) => r.priority === "P3").length;
-
-      let penalty = 0;
-      if (p1Count > 2) {
-        penalty += (p1Count - 2) * 10;
-      }
-      if (p2Count > 2) {
-        penalty += (p2Count - 2) * 5;
-      }
-      if (p3Count > 2) {
-        penalty += (p3Count - 2) * 5;
-      }
-
-      // Count how many instant schedules they created
-      const instantCount = db.requests.filter((r: any) => 
-        Number(r.area) === Number(u.area) && 
-        (r.id.startsWith("REQ-INST-") || (r.remarks && r.remarks.includes("Instantly Scheduled")))
-      ).length;
-
-      u.planningPoints = Math.max(0, 100 - (instantCount * 5) - penalty);
-    }
-  });
 };
 
 export const writeDB = (state: DatabaseState): void => {

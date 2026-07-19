@@ -310,9 +310,16 @@ export default function ManageUsers({
                           ))
                         )}
                         {u.planningPoints !== undefined && (
-                          <span className="text-[9px] font-mono bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 font-extrabold rounded-sm uppercase ml-auto">
-                            Score: {u.planningPoints}/100 pts
-                          </span>
+                          <div className="ml-auto text-right flex flex-col items-end gap-0.5">
+                            <span className="text-[10px] font-mono bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 font-extrabold rounded-sm uppercase">
+                              Score: {u.planningPoints}/100 pts
+                            </span>
+                            {u.role === "Area User" && (
+                              <span className="text-[9px] font-mono text-zinc-500 font-semibold uppercase">
+                                P1: {u.p1Count ?? 0} | P2: {u.p2Count ?? 0} | Instant: {u.instantCount ?? 0}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
