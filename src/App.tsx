@@ -86,27 +86,33 @@ export default function App() {
     return selectedBay === "1";
   });
 
-  // Filter for Gantt Chart and Bay Visualization specifically (current date and current shift only)
+  // Filter for Gantt Chart and Bay Visualization specifically (current date and selected shift/ALL)
   const currentShiftAndDateSchedules = React.useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
-    const currShift = getCurrentShift(new Date());
     return filteredSchedules.filter((sched) => {
       const origReq = requests.find((r) => r.id === sched.requestId);
       const schedDate = origReq?.date || (origReq?.createdAt ? origReq.createdAt.split("T")[0] : todayStr);
       const schedShift = origReq?.shift || sched.shift || "General Shift";
-      return schedDate === todayStr && schedShift === currShift;
+      
+      const dateMatches = schedDate === todayStr;
+      const shiftMatches = selectedShift === "ALL" || schedShift === selectedShift;
+      
+      return dateMatches && shiftMatches;
     });
-  }, [filteredSchedules, requests]);
+  }, [filteredSchedules, requests, selectedShift]);
 
   const currentShiftAndDateRequests = React.useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
-    const currShift = getCurrentShift(new Date());
     return filteredRequests.filter((req) => {
       const reqDate = req.date || (req.createdAt ? req.createdAt.split("T")[0] : todayStr);
       const reqShift = req.shift || "General Shift";
-      return reqDate === todayStr && reqShift === currShift;
+      
+      const dateMatches = reqDate === todayStr;
+      const shiftMatches = selectedShift === "ALL" || reqShift === selectedShift;
+      
+      return dateMatches && shiftMatches;
     });
-  }, [filteredRequests]);
+  }, [filteredRequests, selectedShift]);
 
   // Loading / Error states
   const [loading, setLoading] = useState(true);
@@ -426,7 +432,13 @@ export default function App() {
         return { success: true, data };
       } else {
         setGlobalAlert({ message: data.detail || data.error || "Failed to instantly schedule job.", type: "error" });
-        return { success: false, error: data.detail || data.error };
+        return { 
+          success: false, 
+          error: data.detail || data.error,
+          isConflict: data.code === "CRANE_BUSY" || res.status === 409,
+          busySchedules: data.busySchedules,
+          availableGaps: data.availableGaps
+        };
       }
     } catch (err) {
       setGlobalAlert({ message: "Network error during instant scheduling.", type: "error" });
@@ -848,10 +860,12 @@ export default function App() {
                 user={user}
                 requests={requests}
                 cranes={cranes}
+                schedules={schedules}
                 onRequestAdded={handleRequestAdded}
                 onRequestDeleted={handleRequestDeleted}
                 onRequestSubmittedBulk={handleRequestSubmittedBulk}
                 onRefresh={() => { if (user) reloadDatabase(user); }}
+                onInstantSchedule={handleInstantSchedule}
                 initialSubView="new-request"
                 onUpdateCrane={handleUpdateCrane}
                 onCreateCrane={handleCreateCrane}

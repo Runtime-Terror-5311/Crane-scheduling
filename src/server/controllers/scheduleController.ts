@@ -764,16 +764,6 @@ export const instantSchedule = (req: Request, res: Response): void => {
     const user = (req as any).user;
     const db = readDB();
 
-    // First check and initialize / reset points
-    // const now = new Date();
-    // const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    // if (!db.settings.lastPointsResetMonth || db.settings.lastPointsResetMonth !== currentMonthStr) {
-    //   db.users.forEach((u) => {
-    //     u.planningPoints = 100;
-    //   });
-    //   db.settings.lastPointsResetMonth = currentMonthStr;
-    // }
-
     // Find current logged user in DB
     const dbUser = db.users.find((u) => u.employeeId.toUpperCase() === user.employeeId.toUpperCase());
     if (!dbUser) {
@@ -809,7 +799,10 @@ export const instantSchedule = (req: Request, res: Response): void => {
       remarks,
       assignedCrane,
       isTandemLift,
-      secondaryCrane
+      secondaryCrane,
+      machineName,
+      details,
+      date
     } = req.body;
 
     if (!startTime || !endTime || !assignedCrane) {
@@ -817,9 +810,16 @@ export const instantSchedule = (req: Request, res: Response): void => {
       return;
     }
 
-    // Verify if there is a conflict on the selected crane
-    const sMins = parseTimeToMinutes(startTime);
-    const eMins = parseTimeToMinutes(endTime);
+    // Enforce shift boundary check for instant scheduling
+    const boundaryCheck = verifyShiftBoundary(startTime, endTime, shift as ShiftType);
+    if (!boundaryCheck.isValid) {
+      res.status(400).json({
+        error: "Shift boundary violation",
+        detail: boundaryCheck.message || "The requested time is outside shift hours.",
+        code: "SHIFT_BOUNDARY_VIOLATION"
+      });
+      return;
+    }
 
     // Check if crane is in Maintenance or Breakdown
     const craneObj = db.cranes.find((c) => c.id === assignedCrane);
@@ -832,60 +832,15 @@ export const instantSchedule = (req: Request, res: Response): void => {
       return;
     }
 
-    // Simple overlap check
-    const hasOverlap = db.schedules.some((s) => {
-      if (s.assignedCrane !== assignedCrane && s.secondaryCrane !== assignedCrane) return false;
-      const existingS = parseTimeToMinutes(s.startTime);
-      const existingE = parseTimeToMinutes(s.endTime);
-      // Check overlapping intervals
-      return (sMins < existingE && eMins > existingS);
-    });
+    const sMins = parseTimeToMinutes(startTime);
+    const eMins = parseTimeToMinutes(endTime);
 
-    if (hasOverlap) {
-      res.status(400).json({
-        error: "Scheduling Conflict",
-        detail: `Crane ${assignedCrane} has an overlapping scheduled job during this time window. Please select another time or crane.`,
-        code: "CRANE_CONFLICT"
-      });
-      return;
-    }
-
-    // Create CraneRequest
+    // Create CraneRequest ID & Schedule ID first
     const reqId = `REQ-INST-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
-    const newRequest = {
-      id: reqId,
-      shift: shift || "General Shift",
-      area: Number(area) || 1,
-      bay: bay || "A",
-      department: department || "General Operation",
-      column: Number(column) || 15,
-      startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
-      endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
-      estimatedStartTime: startTime,
-      estimatedEndTime: endTime,
-      estimatedWeight: Number(weight) || 5,
-      priority: priority || "P3",
-      remarks: remarks ? `${remarks} (Instantly Scheduled)` : "Instantly Scheduled",
-      mandatoryCrane: assignedCrane,
-      status: "Scheduled" as const,
-      createdAt: new Date().toISOString(),
-      craneAllocations: [
-        {
-          craneId: assignedCrane,
-          area: Number(area) || 1,
-          startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
-          endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
-          startTime,
-          endTime,
-          date: new Date().toISOString().split("T")[0],
-          assignedAt: new Date().toISOString()
-        }
-      ]
-    };
-
-    // Create Schedule
     const schedId = `SCH-INST-${Date.now().toString().slice(-4)}${Math.floor(100 + Math.random() * 900)}`;
-    const newSchedule = {
+
+    // Build the proposed schedule payload
+    const proposedSchedulePayload = {
       id: schedId,
       requestId: reqId,
       area: Number(area) || 1,
@@ -898,13 +853,365 @@ export const instantSchedule = (req: Request, res: Response): void => {
       endTime,
       weight: Number(weight) || 5,
       priority: priority || "P3",
+      status: "Approved" as const,
+      travelTimeMinutes: 2,
+      bufferTimeMinutes: 3,
+      remarks: remarks || "Instant Scheduling",
+      department: department || "General Operation",
+      isTandemLift: !!isTandemLift,
+      secondaryCrane: secondaryCrane || undefined,
+      shift: shift || "General Shift"
+    };
+
+    // Helper functions for time normalization
+    const getNormalizedMinutes = (timeStr: string, targetShift: ShiftType): number => {
+      const m = parseTimeToMinutes(timeStr);
+      if (targetShift === "Shift C") {
+        return m < 12 * 60 ? m + 24 * 60 : m;
+      }
+      return m;
+    };
+
+    const getDenormalizedMinutes = (m: number): number => {
+      return m % (24 * 60);
+    };
+
+    // Retrieve active schedules on this crane for this shift (status !== "Cancelled")
+    const existingSchedules = db.schedules.filter(
+      (s) => 
+        (s.assignedCrane === assignedCrane || s.secondaryCrane === assignedCrane) && 
+        s.shift === proposedSchedulePayload.shift && 
+        s.status !== "Cancelled"
+    );
+
+    const window = SHIFT_WINDOWS[proposedSchedulePayload.shift as ShiftType] || [0, 24 * 60];
+    const [wStart, wEnd] = window;
+
+    // Normalize new schedule times
+    const newStartNorm = getNormalizedMinutes(startTime, proposedSchedulePayload.shift as ShiftType);
+    const newEndNorm = getNormalizedMinutes(endTime, proposedSchedulePayload.shift as ShiftType);
+    let newDuration = newEndNorm - newStartNorm;
+    if (newDuration <= 0) newDuration = 60;
+
+    // Check for overlap conflicts in the requested slot
+    const hasOverlapConflict = existingSchedules.some((s) => {
+      const sStart = getNormalizedMinutes(s.startTime, proposedSchedulePayload.shift as ShiftType);
+      const sEnd = getNormalizedMinutes(s.endTime, proposedSchedulePayload.shift as ShiftType);
+      return newStartNorm < sEnd && sStart < newEndNorm;
+    });
+
+    if (hasOverlapConflict && !req.body.force && !req.body.overrideConflict) {
+      // 1. Compile details about who/what is occupying the crane and till when
+      const busySchedules = existingSchedules.map((s) => {
+        const reqObj = db.requests.find((r) => r.id === s.requestId);
+        return {
+          id: s.id,
+          requestId: s.requestId,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          startTime12: formatTimeTo12Hr(s.startTime),
+          endTime12: formatTimeTo12Hr(s.endTime),
+          department: s.department,
+          machineName: reqObj?.machineName || s.remarks || "Gantry Operation",
+          priority: s.priority || "P3",
+          remarks: s.remarks || ""
+        };
+      }).sort((a, b) => {
+        const startA = getNormalizedMinutes(a.startTime, proposedSchedulePayload.shift as ShiftType);
+        const startB = getNormalizedMinutes(b.startTime, proposedSchedulePayload.shift as ShiftType);
+        return startA - startB;
+      });
+
+      // 2. Sort busy intervals to locate gaps of at least newDuration minutes
+      const sortedIntervals = existingSchedules
+        .map((s) => ({
+          start: getNormalizedMinutes(s.startTime, proposedSchedulePayload.shift as ShiftType),
+          end: getNormalizedMinutes(s.endTime, proposedSchedulePayload.shift as ShiftType),
+          startTime: s.startTime,
+          endTime: s.endTime
+        }))
+        .sort((a, b) => a.start - b.start);
+
+      // Merge overlapping/contiguous intervals for precise gap calculations
+      const busyBlocks: { start: number; end: number }[] = [];
+      sortedIntervals.forEach((interval) => {
+        if (busyBlocks.length === 0) {
+          busyBlocks.push({ start: interval.start, end: interval.end });
+        } else {
+          const last = busyBlocks[busyBlocks.length - 1];
+          if (interval.start < last.end) {
+            last.end = Math.max(last.end, interval.end);
+          } else {
+            busyBlocks.push({ start: interval.start, end: interval.end });
+          }
+        }
+      });
+
+      // Calculate free gaps of at least newDuration minutes in the shift window [wStart, wEnd]
+      const availableGaps: { start: number; end: number; startStr: string; endStr: string; duration: number; start12: string; end12: string }[] = [];
+      let currentCursor = wStart;
+
+      busyBlocks.forEach((block) => {
+        const gapSize = block.start - currentCursor;
+        if (gapSize >= newDuration) {
+          const startStr = formatMinutesToTime(getDenormalizedMinutes(currentCursor));
+          const endStr = formatMinutesToTime(getDenormalizedMinutes(block.start));
+          availableGaps.push({
+            start: currentCursor,
+            end: block.start,
+            startStr,
+            endStr,
+            duration: gapSize,
+            start12: formatTimeTo12Hr(startStr),
+            end12: formatTimeTo12Hr(endStr)
+          });
+        }
+        currentCursor = Math.max(currentCursor, block.end);
+      });
+
+      const finalGapSize = wEnd - currentCursor;
+      if (finalGapSize >= newDuration) {
+        const startStr = formatMinutesToTime(getDenormalizedMinutes(currentCursor));
+        const endStr = formatMinutesToTime(getDenormalizedMinutes(wEnd));
+        availableGaps.push({
+          start: currentCursor,
+          end: wEnd,
+          startStr,
+          endStr,
+          duration: finalGapSize,
+          start12: formatTimeTo12Hr(startStr),
+          end12: formatTimeTo12Hr(endStr)
+        });
+      }
+
+      res.status(409).json({
+        error: "Crane Busy Conflict",
+        detail: `Gantry Crane ${assignedCrane} is busy or has overlapping operations in the requested time interval ${formatTimeTo12Hr(startTime)} - ${formatTimeTo12Hr(endTime)}.`,
+        code: "CRANE_BUSY",
+        busySchedules,
+        availableGaps
+      });
+      return;
+    }
+
+    // Build the list of all jobs to schedule
+    const jobs: any[] = [];
+
+    // Add existing schedules
+    existingSchedules.forEach((s) => {
+      const startNorm = getNormalizedMinutes(s.startTime, proposedSchedulePayload.shift as ShiftType);
+      const endNorm = getNormalizedMinutes(s.endTime, proposedSchedulePayload.shift as ShiftType);
+      let duration = endNorm - startNorm;
+      if (duration <= 0) duration = 60;
+      
+      jobs.push({
+        id: s.id,
+        requestId: s.requestId,
+        duration,
+        preferredStart: startNorm,
+        priority: s.priority || "P3",
+        scheduleObj: s
+      });
+    });
+
+    // Add the new schedule
+    jobs.push({
+      id: schedId,
+      requestId: reqId,
+      duration: newDuration,
+      preferredStart: newStartNorm,
+      priority: priority || "P3",
+      scheduleObj: proposedSchedulePayload
+    });
+
+    // Priority ranks (smaller value is higher priority)
+    const PRIORITY_RANK: Record<PriorityType, number> = {
+      "P1": 1,
+      "P2": 2,
+      "P3": 3,
+      "P4": 4
+    };
+
+    // Sort by priority (ascending, i.e. P1 first), then by preferredStart (ascending)
+    jobs.sort((a, b) => {
+      const pA = PRIORITY_RANK[a.priority as PriorityType] || 3;
+      const pB = PRIORITY_RANK[b.priority as PriorityType] || 3;
+      if (pA !== pB) return pA - pB;
+      return a.preferredStart - b.preferredStart;
+    });
+
+    interface PlacedInterval {
+      start: number;
+      end: number;
+      jobId: string;
+    }
+    const placed: PlacedInterval[] = [];
+
+    const isSlotFree = (start: number, end: number) => {
+      if (start < wStart || end > wEnd) return false;
+      return !placed.some((p) => (start < p.end && end > p.start));
+    };
+
+    // Place jobs in order of priority
+    for (const job of jobs) {
+      let placedStart = -1;
+
+      if (isSlotFree(job.preferredStart, job.preferredStart + job.duration)) {
+        placedStart = job.preferredStart;
+      } else {
+        let bestDiff = Infinity;
+        let foundStart = -1;
+
+        // Try to scan starting times every 5 minutes around the shift window
+        for (let t = wStart; t <= wEnd - job.duration; t += 5) {
+          if (isSlotFree(t, t + job.duration)) {
+            const diff = Math.abs(t - job.preferredStart);
+            if (diff < bestDiff) {
+              bestDiff = diff;
+              foundStart = t;
+            }
+          }
+        }
+
+        if (foundStart !== -1) {
+          placedStart = foundStart;
+        } else {
+          // Try 1-minute resolution fallback
+          for (let t = wStart; t <= wEnd - job.duration; t += 1) {
+            if (isSlotFree(t, t + job.duration)) {
+              const diff = Math.abs(t - job.preferredStart);
+              if (diff < bestDiff) {
+                bestDiff = diff;
+                placedStart = t;
+              }
+            }
+          }
+        }
+      }
+
+      if (placedStart !== -1) {
+        placed.push({
+          start: placedStart,
+          end: placedStart + job.duration,
+          jobId: job.id
+        });
+      } else {
+        // Fallback: Force place at preferred start anyway
+        placed.push({
+          start: job.preferredStart,
+          end: job.preferredStart + job.duration,
+          jobId: job.id
+        });
+      }
+    }
+
+    // Now, let's update the database based on where they were placed
+    let resolvedStartTime = startTime;
+    let resolvedEndTime = endTime;
+    let shiftOccurred = false;
+
+    placed.forEach((p) => {
+      const job = jobs.find((j) => j.id === p.jobId)!;
+      const start24 = formatMinutesToTime(getDenormalizedMinutes(p.start));
+      const end24 = formatMinutesToTime(getDenormalizedMinutes(p.end));
+
+      if (job.id === schedId) {
+        resolvedStartTime = start24;
+        resolvedEndTime = end24;
+        if (resolvedStartTime !== startTime || resolvedEndTime !== endTime) {
+          shiftOccurred = true;
+        }
+      } else {
+        // Find existing schedule and update it
+        const originalSched = db.schedules.find((s) => s.id === job.id);
+        if (originalSched) {
+          if (originalSched.startTime !== start24 || originalSched.endTime !== end24) {
+            originalSched.startTime = start24;
+            originalSched.endTime = end24;
+            originalSched.remarks = originalSched.remarks 
+              ? `${originalSched.remarks} (Rescheduled due to P1/P2 priority override)`
+              : "Rescheduled due to priority override";
+            
+            // Also update the associated request
+            const associatedReq = db.requests.find((r) => r.id === originalSched.requestId);
+            if (associatedReq) {
+              associatedReq.estimatedStartTime = start24;
+              associatedReq.estimatedEndTime = end24;
+              if (Array.isArray(associatedReq.craneAllocations)) {
+                associatedReq.craneAllocations = associatedReq.craneAllocations.map((alloc: any) => {
+                  if (alloc.craneId === assignedCrane) {
+                    return {
+                      ...alloc,
+                      startTime: start24,
+                      endTime: end24
+                    };
+                  }
+                  return alloc;
+                });
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Create the CraneRequest
+    const newRequest = {
+      id: reqId,
+      shift: shift || "General Shift",
+      area: Number(area) || 1,
+      bay: bay || "A",
+      department: department || "General Operation",
+      machineName: machineName || "Instant Gantry Operation",
+      details: details || "",
+      column: Number(column) || 15,
+      startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
+      endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
+      estimatedStartTime: resolvedStartTime,
+      estimatedEndTime: resolvedEndTime,
+      estimatedWeight: Number(weight) || 5,
+      priority: priority || "P3",
+      remarks: remarks ? `${remarks} (Instantly Scheduled)` : "Instantly Scheduled",
+      mandatoryCrane: assignedCrane,
+      status: "Scheduled" as const,
+      date: date || new Date().toISOString().split("T")[0],
+      createdAt: new Date().toISOString(),
+      craneAllocations: [
+        {
+          craneId: assignedCrane,
+          area: Number(area) || 1,
+          startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
+          endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
+          startTime: resolvedStartTime,
+          endTime: resolvedEndTime,
+          date: date || new Date().toISOString().split("T")[0],
+          assignedAt: new Date().toISOString()
+        }
+      ]
+    };
+
+    // Create the Schedule
+    const newSchedule = {
+      id: schedId,
+      requestId: reqId,
+      area: Number(area) || 1,
+      bay: bay || "A",
+      assignedCrane,
+      column: Number(column) || 15,
+      startColumn: startColumn !== undefined ? Number(startColumn) : Number(column) || 10,
+      endColumn: endColumn !== undefined ? Number(endColumn) : Number(column) || 20,
+      startTime: resolvedStartTime,
+      endTime: resolvedEndTime,
+      weight: Number(weight) || 5,
+      priority: priority || "P3",
       status: "Approved",
       travelTimeMinutes: 2,
       bufferTimeMinutes: 3,
       remarks: remarks || "Instant Scheduling",
       department: department || "General Operation",
       isTandemLift: !!isTandemLift,
-      secondaryCrane: secondaryCrane || undefined
+      secondaryCrane: secondaryCrane || undefined,
+      shift: shift || "General Shift"
     };
 
     db.requests.push(newRequest);
@@ -912,9 +1219,6 @@ export const instantSchedule = (req: Request, res: Response): void => {
 
     // Recompute planning points and priorities dynamic penalties self-correction for all supervisors
     recomputeAllUsersPlanningPoints(db);
-
-    // Recompute planning points for all users
-    // recomputeAllUsersPlanningPoints(db);
 
     // Re-read the updated points from the mutated db object (dbUser is a reference, already updated)
     const updatedPoints = dbUser.planningPoints ?? 100;
@@ -925,12 +1229,16 @@ export const instantSchedule = (req: Request, res: Response): void => {
       dbUser.employeeId,
       dbUser.name,
       "Instant Schedule Created",
-      `User instantly scheduled request ${reqId} on crane ${assignedCrane} for time ${startTime}-${endTime}. Planning points now: ${updatedPoints}.`
+      `User instantly scheduled request ${reqId} on crane ${assignedCrane} for time ${resolvedStartTime}-${resolvedEndTime}. Planning points now: ${updatedPoints}.`
     );
+
+    const shiftMsg = shiftOccurred 
+      ? ` Note: Due to overlapping slots, the job was shifted to ${formatTimeTo12Hr(resolvedStartTime)} - ${formatTimeTo12Hr(resolvedEndTime)} based on priority rank.`
+      : "";
 
     res.json({
       success: true,
-      message: `Job instantly scheduled! Planning points updated. Remaining points: ${updatedPoints}`,
+      message: `Job instantly scheduled! Planning points updated. Remaining points: ${updatedPoints}.${shiftMsg}`,
       request: newRequest,
       schedule: newSchedule,
       planningPoints: updatedPoints,

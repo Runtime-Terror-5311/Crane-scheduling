@@ -146,6 +146,45 @@ export default function OperationsList({
   const [instantError, setInstantError] = useState<string>("");
   const [isInstantSubmitting, setIsInstantSubmitting] = useState(false);
 
+  // New requirement-style instant form state variables
+  const [instantJobType, setInstantJobType] = useState<"New" | "Continuation">("New");
+  const [instantParentJobId, setInstantParentJobId] = useState("");
+  const [instantMachineName, setInstantMachineName] = useState("");
+  const [instantDetails, setInstantDetails] = useState("");
+
+  const openInstantModal = () => {
+    if (user && user.role === "Area User") {
+      const assignedArea = Number(user.area) || 1;
+      const assignedBay = getBayForArea(assignedArea);
+      setInstantArea(assignedArea);
+      setInstantBay(assignedBay);
+      
+      // Filter cranes for this bay
+      const bayCranes = cranes.filter(c => getBayForCrane(c.id) === assignedBay);
+      if (bayCranes.length > 0) {
+        setInstantCrane(bayCranes[0].id);
+      } else {
+        setInstantCrane("");
+      }
+    } else {
+      setInstantArea(1);
+      setInstantBay("1");
+      if (cranes.length > 0) {
+        setInstantCrane(cranes[0].id);
+      } else {
+        setInstantCrane("");
+      }
+    }
+    
+    setInstantJobType("New");
+    setInstantParentJobId("");
+    setInstantMachineName("");
+    setInstantDetails("");
+    setInstantRemarks("");
+    setInstantError("");
+    setIsInstantModalOpen(true);
+  };
+
   const [historyStartDate, setHistoryStartDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30); // Default to 30 days ago
@@ -504,6 +543,8 @@ export default function OperationsList({
       remarks: instantRemarks,
       assignedCrane: instantCrane,
       isTandemLift: false,
+      machineName: instantMachineName || "Instant Gantry Operation",
+      details: instantDetails || ""
     };
 
     const res = await onInstantSchedule?.(payload);
@@ -598,14 +639,7 @@ export default function OperationsList({
             Download Master PDF
           </button>
 
-          <button
-            onClick={() => setIsInstantModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-[#141414] shadow-[2px_2px_0px_#141414] rounded-sm text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-            title="Instantly deploy a hoisting job directly to the timetable (-5 planning points penalty)"
-          >
-            <Zap className="w-4 h-4 text-yellow-300 animate-pulse" />
-            Instant Scheduling
-          </button>
+
         </div>
       </div>
 
@@ -1330,6 +1364,132 @@ export default function OperationsList({
 
             {/* Form */}
             <form onSubmit={handleInstantSubmit} className="space-y-4 text-xs">
+              
+              {/* Job Continuity Check */}
+              <div className="bg-zinc-50 border-2 border-[#141414] p-3 rounded-sm space-y-2">
+                <label className="block text-[10px] font-mono font-black uppercase text-zinc-500">
+                  Job Continuity Check *
+                </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="instantJobType"
+                      value="New"
+                      checked={instantJobType === "New"}
+                      onChange={() => {
+                        setInstantJobType("New");
+                        setInstantParentJobId("");
+                        setInstantMachineName("");
+                      }}
+                      className="accent-emerald-600 w-4 h-4"
+                    />
+                    <span>New Gantry Operation</span>
+                  </label>
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="instantJobType"
+                      value="Continuation"
+                      checked={instantJobType === "Continuation"}
+                      onChange={() => {
+                        setInstantJobType("Continuation");
+                        setInstantMachineName("");
+                      }}
+                      className="accent-emerald-600 w-4 h-4"
+                    />
+                    <span>Continuation of Existing Job</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Conditional Fields based on Job Continuity */}
+              {instantJobType === "Continuation" ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                      Select Parent Job (Previous Shift Work) *
+                    </label>
+                    <select
+                      required={instantJobType === "Continuation"}
+                      value={instantParentJobId}
+                      onChange={(e) => {
+                        const pId = e.target.value;
+                        setInstantParentJobId(pId);
+                        const pReq = requests.find((r) => r.id === pId);
+                        if (pReq) {
+                          setInstantMachineName(pReq.machineName || "");
+                          setInstantDept(pReq.department || "");
+                          if (pReq.area) {
+                            setInstantArea(pReq.area);
+                            setInstantBay(getBayForArea(pReq.area));
+                          }
+                        } else {
+                          setInstantMachineName("");
+                        }
+                      }}
+                      className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    >
+                      <option value="">-- Choose active or previous job --</option>
+                      {requests
+                        .filter(r => r.id && !r.id.includes("-CONT-"))
+                        .filter(r => {
+                          if (user && user.role === "Area User") {
+                            return r.area === Number(user.area);
+                          }
+                          return true;
+                        })
+                        .map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.id} - {r.machineName || r.department || "No Name"} (Cols {r.startColumn}-{r.endColumn})
+                          </option>
+                        ))
+                      }
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                      Machine being Manufactured (Auto-filled)
+                    </label>
+                    <input
+                      type="text"
+                      disabled
+                      value={instantMachineName}
+                      className="w-full bg-zinc-100 border-2 border-[#141414] p-2.5 rounded-sm font-mono font-bold text-zinc-500 cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                    Machine being Manufactured (Job Name) *
+                  </label>
+                  <input
+                    type="text"
+                    required={instantJobType === "New"}
+                    value={instantMachineName}
+                    onChange={(e) => setInstantMachineName(e.target.value)}
+                    placeholder="e.g. D1 Crane Manufacturing, Gantry Assembly, Melt Furnace maintenance"
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Details of Shift Work */}
+              <div>
+                <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
+                  Details of Shift Work (Specific Activities) *
+                </label>
+                <textarea
+                  required
+                  value={instantDetails}
+                  onChange={(e) => setInstantDetails(e.target.value)}
+                  className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none h-16 resize-none"
+                  placeholder="e.g. Raising of the main beam from the assembly block onto the wheel assembly carriage..."
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
                 {/* 1. Shift selection */}
@@ -1350,7 +1510,7 @@ export default function OperationsList({
                   </select>
                 </div>
 
-                {/* 2. Target Crane selection */}
+                {/* 2. Target Crane selection - Filtered by Bay of the supervisor */}
                 <div>
                   <label className="block text-[10px] font-mono font-black uppercase text-zinc-500 mb-1">
                     Assigned Gantry Crane *
@@ -1362,11 +1522,19 @@ export default function OperationsList({
                     required
                   >
                     <option value="">-- Choose Active Crane --</option>
-                    {cranes.map((c) => (
-                      <option key={c.id} value={c.id} disabled={c.status === "Breakdown" || c.status === "Maintenance"}>
-                        {c.name} ({c.id}) - Capacity {c.capacity}T [{c.status}]
-                      </option>
-                    ))}
+                    {cranes
+                      .filter((c) => {
+                        if (user && user.role === "Area User") {
+                          const assignedBay = getBayForArea(Number(user.area));
+                          return getBayForCrane(c.id) === assignedBay;
+                        }
+                        return true;
+                      })
+                      .map((c) => (
+                        <option key={c.id} value={c.id} disabled={c.status === "Breakdown" || c.status === "Maintenance"}>
+                          {c.name} ({c.id}) - Capacity {c.capacity}T [{c.status}]
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -1377,8 +1545,13 @@ export default function OperationsList({
                   </label>
                   <select
                     value={instantArea}
-                    onChange={(e) => setInstantArea(Number(e.target.value))}
-                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none"
+                    onChange={(e) => {
+                      const newArea = Number(e.target.value);
+                      setInstantArea(newArea);
+                      setInstantBay(getBayForArea(newArea));
+                    }}
+                    disabled={user && user.role === "Area User"}
+                    className="w-full bg-white border-2 border-[#141414] p-2 rounded-sm font-mono font-bold focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                     required
                   >
                     {Array.from({ length: 22 }, (_, idx) => idx + 1).map((a) => (

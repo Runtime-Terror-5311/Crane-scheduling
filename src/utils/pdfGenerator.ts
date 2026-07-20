@@ -665,16 +665,8 @@ export function generateJobsTrackerPDF(requests: CraneRequest[], reqIdToDownload
     ? requests.filter(r => r.jobType !== "Continuation")
     : requests.filter(r => r.id === reqIdToDownload);
 
-  // Build the flat list of row items (main jobs + their continuation children)
-  const rowItems: CraneRequest[] = [];
-  mainJobs.forEach((job) => {
-    rowItems.push(job);
-    const childJobs = requests.filter(r => r.parentJobId === job.id && r.jobType === "Continuation");
-    rowItems.push(...childJobs);
-  });
-
-  // Sort chronologically using start date + start time together
-  rowItems.sort((a, b) => {
+  // Sort mainJobs chronologically
+  mainJobs.sort((a, b) => {
     const aInfo = getStartDateTime(a);
     const bInfo = getStartDateTime(b);
     const aTime = getSortTimestamp(aInfo.date, aInfo.time);
@@ -684,128 +676,216 @@ export function generateJobsTrackerPDF(requests: CraneRequest[], reqIdToDownload
 
   // Document Title & Styling
   doc.setFont("Helvetica", "bold");
-  doc.setFontSize(15);
+  doc.setFontSize(14);
   doc.setTextColor(15, 23, 42); // slate-900
-  const jobLabel = mainJobs[0]?.machineName || mainJobs[0]?.department || "General Job";
   const headingText = isAll 
     ? "MANUFACTURING JOBS TRACKER - MASTER REPORT"
-    : `${reqIdToDownload} - ${jobLabel.toUpperCase()}`;
+    : `JOB TRACKER REPORT - REQ ID: ${reqIdToDownload}`;
   doc.text(headingText, 14, 20);
   
   doc.setFont("Helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105); // slate-600
-  doc.text(`Generated on: ${now.toLocaleString()} | Scope: ${isAll ? "All Jobs & Milestones" : `Job ID ${reqIdToDownload} & Milestones`}`, 14, 26);
+  doc.text(`Generated on: ${now.toLocaleString()} | Scope: ${isAll ? "All Registration Logs Grouped" : `Specific Req ID ${reqIdToDownload} Grouped`}`, 14, 25);
 
   // Decorative Steel Line
   doc.setDrawColor(203, 213, 225); // slate-300
   doc.setLineWidth(0.5);
-  doc.line(14, 28, 196, 28);
+  doc.line(14, 27, 196, 27);
 
-  const tableHeaders = [
-    "Job ID",
-    "Operation Details",
-    "Est. Weight",
-    "Crane Allocated",
-    "Completion Date",
-    "Completion Time Range"
-  ];
+  let currentY = 32;
 
-  const tableRows = rowItems.map((item) => {
-    const jobID = item.id || "N/A";
-    
-    // let machineName = item.machineName || "";
-    // if (!machineName && item.jobType === "Continuation" && item.parentJobId) {
-    //   const parent = requests.find(r => r.id === item.parentJobId);
-    //   if (parent) {
-    //     machineName = parent.machineName || "";
-    //   }
-    // }
-    // if (!machineName) {
-    //   machineName = item.department || "General Job";
-    // }
+  // Render sections: one for each parent job
+  mainJobs.forEach((mainJob, index) => {
+    const childJobs = requests.filter(r => r.parentJobId === mainJob.id && r.jobType === "Continuation");
+    const groupJobs = [mainJob, ...childJobs];
 
-    const details = item.details || item.remarks || "N/A";
-    const weight = `${item.estimatedWeight || 0} Tons`;
-    const cranes = getFormattedCranes(item);
-    
-    const compInfo = getCompletionDateTime(item);
-    const compDate = compInfo.date || "N/A";
-    const compTimeRange = getCompletionTimeRange(item);
+    // Sort this group's operations chronologically
+    groupJobs.sort((a, b) => {
+      const aInfo = getStartDateTime(a);
+      const bInfo = getStartDateTime(b);
+      const aTime = getSortTimestamp(aInfo.date, aInfo.time);
+      const bTime = getSortTimestamp(bInfo.date, bInfo.time);
+      return aTime - bTime;
+    });
 
-    return [
-      jobID,
-      details,
-      weight,
-      cranes,
-      compDate,
-      compTimeRange
-    ];
-  });
+    // Calculate total hours and build breakdowns for this group of jobs
+    let groupTotalHours = 0;
+    const craneHoursMap: Record<string, number> = {};
+    const jobHoursMap: Record<string, number> = {};
 
-  autoTable(doc, {
-    startY: 35,
-    head: [tableHeaders],
-    body: tableRows,
-    theme: "striped",
-    styles: { 
-      fontSize: 8, 
-      cellPadding: 2.5, 
-      valign: "middle",
-      lineColor: [226, 232, 240], // slate-200
-      lineWidth: 0.1
-    },
-    headStyles: { 
-      fillColor: [30, 41, 59], // slate-800 (clean minimalist)
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      fontSize: 8.5
-    },
-    columnStyles: {
-      0: { cellWidth: 30 },
-      1: { cellWidth: 65 },
-      2: { cellWidth: 20, halign: "center" },
-      3: { cellWidth: 25, halign: "center" },
-      4: { cellWidth: 22, halign: "center" },
-      5: { cellWidth: 20, halign: "center" }
-    },
-    margin: { left: 14, right: 14 }
-  });
+    groupJobs.forEach((item) => {
+      let itemHours = 0;
+      const allocs = item.craneAllocations || [];
+      if (allocs.length > 0) {
+        itemHours = allocs.reduce((sum, a) => sum + getHoursDiff(a.startTime, a.endTime), 0);
+        allocs.forEach(a => {
+          craneHoursMap[a.craneId] = (craneHoursMap[a.craneId] || 0) + getHoursDiff(a.startTime, a.endTime);
+        });
+      } else {
+        itemHours = getHoursDiff(item.estimatedStartTime, item.estimatedEndTime);
+        const defaultCrane = item.mandatoryCrane || "Any";
+        craneHoursMap[defaultCrane] = (craneHoursMap[defaultCrane] || 0) + itemHours;
+      }
+      groupTotalHours += itemHours;
+      jobHoursMap[item.id] = itemHours;
+    });
 
-  const finalY = (doc as any).lastAutoTable.finalY;
+    const jobHoursDetails = groupJobs.map(item => {
+      const h = jobHoursMap[item.id] || 0;
+      return `${item.id}: ${h.toFixed(1)}h`;
+    }).join(", ");
 
-  // Calculate grand total hours of all included row items
-  let grandTotalHours = 0;
-  rowItems.forEach((item) => {
-    const allocs = item.craneAllocations || [];
-    if (allocs.length > 0) {
-      grandTotalHours += allocs.reduce((sum, a) => sum + getHoursDiff(a.startTime, a.endTime), 0);
-    } else {
-      grandTotalHours += getHoursDiff(item.estimatedStartTime, item.estimatedEndTime);
+    const craneHoursDetails = Object.entries(craneHoursMap)
+      .map(([crane, hours]) => `${crane}: ${hours.toFixed(1)}h`)
+      .join(", ");
+
+    // Page Break calculation - if we don't have enough space left (e.g., less than 65mm), add a new page
+    if (index > 0 && currentY > 190) {
+      doc.addPage();
+      currentY = 20;
     }
+
+    // Section title container
+    doc.setFillColor(241, 245, 249); // slate-100
+    doc.rect(14, currentY, 182, 11, "F");
+
+    // Left border accent bar (dark slate)
+    doc.setFillColor(30, 41, 59); // slate-800
+    doc.rect(14, currentY, 2.5, 11, "F");
+
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 41, 59);
+
+    const jobTitle = mainJob.machineName || mainJob.department || "General Gantry Job";
+    const sectionTitle = `REQ ID: ${mainJob.id}   |   JOB NAME: ${jobTitle.toUpperCase()}`;
+    doc.text(sectionTitle, 19, currentY + 7.5);
+
+    currentY += 15;
+
+    // Group info text with separate hourly details
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    
+    // First line of details: operation counts and totals
+    doc.text(`Total Operations under Registration: ${groupJobs.length}    |    Accumulated Active Crane Time: ${groupTotalHours.toFixed(1)} hrs`, 15, currentY);
+    currentY += 4.5;
+    
+    // Second line of details: Separate working hours for different jobs and cranes
+    doc.setFont("Helvetica", "normal");
+    doc.text(`Individual Job Hours: [ ${jobHoursDetails} ]    |    Individual Crane Hours: [ ${craneHoursDetails} ]`, 15, currentY);
+    currentY += 5;
+
+    // Setup table data
+    const tableHeaders = [
+      "Job ID",
+      "Operation Details",
+      "Est. Weight",
+      "Crane Allocated",
+      "Crane Hours",
+      "Completion Date",
+      "Completion Time Range",
+      "Job Type"
+    ];
+
+    const tableRows = groupJobs.map((item) => {
+      const jobID = item.id || "N/A";
+      const details = item.details || item.remarks || "N/A";
+      const weight = `${item.estimatedWeight || 0} Tons`;
+      const cranes = getFormattedCranes(item);
+      const singleJobHours = (jobHoursMap[item.id] || 0).toFixed(1) + " hrs";
+      
+      const compInfo = getCompletionDateTime(item);
+      const compDate = compInfo.date || "N/A";
+      const compTimeRange = getCompletionTimeRange(item);
+      const isCont = item.jobType === "Continuation" ? "Continuation" : "Root Job";
+
+      return [
+        jobID,
+        details,
+        weight,
+        cranes,
+        singleJobHours,
+        compDate,
+        compTimeRange,
+        isCont
+      ];
+    });
+
+    autoTable(doc, {
+      startY: currentY,
+      head: [tableHeaders],
+      body: tableRows,
+      theme: "striped",
+      styles: { 
+        fontSize: 7.5, 
+        cellPadding: 2.2, 
+        valign: "middle",
+        lineColor: [226, 232, 240], // slate-200
+        lineWidth: 0.1
+      },
+      headStyles: { 
+        fillColor: [30, 41, 59], // slate-800
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8
+      },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 16, halign: "center" },
+        3: { cellWidth: 24, halign: "center" },
+        4: { cellWidth: 18, halign: "center" },
+        5: { cellWidth: 20, halign: "center" },
+        6: { cellWidth: 22, halign: "center" },
+        7: { cellWidth: 20, halign: "center" }
+      },
+      margin: { left: 14, right: 14 }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY;
+    currentY = finalY + 12; // Gap for the next section
   });
 
-  let currentY = finalY + 8;
-  if (currentY > 265) {
+  // Global summary and footer
+  let totalJobsAllGroups = 0;
+  let totalHoursAllGroups = 0;
+  mainJobs.forEach((job) => {
+    const childJobs = requests.filter(r => r.parentJobId === job.id && r.jobType === "Continuation");
+    const groupJobs = [job, ...childJobs];
+    totalJobsAllGroups += groupJobs.length;
+    groupJobs.forEach((item) => {
+      const allocs = item.craneAllocations || [];
+      if (allocs.length > 0) {
+        totalHoursAllGroups += allocs.reduce((sum, a) => sum + getHoursDiff(a.startTime, a.endTime), 0);
+      } else {
+        totalHoursAllGroups += getHoursDiff(item.estimatedStartTime, item.estimatedEndTime);
+      }
+    });
+  });
+
+  if (currentY > 260) {
     doc.addPage();
     currentY = 20;
   }
 
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(203, 213, 225); // slate-300
+  doc.setFillColor(248, 250, 252); // slate-50
+  doc.setDrawColor(30, 41, 59); // slate-800
   doc.setLineWidth(0.5);
-  doc.rect(14, currentY, 182, 11, "FD");
+  doc.rect(14, currentY, 182, 13, "FD");
 
   doc.setFont("Helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(30, 41, 59); // slate-800
-  doc.text(`TOTAL ACCUMULATED TIME: ${grandTotalHours.toFixed(1)} HOURS`, 18, currentY + 7);
+  doc.text(`GRAND REPORT TOTALS: ${mainJobs.length} REQ ID(s) | ${totalJobsAllGroups} OPERATIONS | ${totalHoursAllGroups.toFixed(1)} TOTAL HOISTING HOURS`, 18, currentY + 8);
 
   // Footer
   doc.setFont("Helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
-  doc.text(`Generated on: ${now.toLocaleString()}  |  Manufacturing Tracker Service`, 14, 287);
+  doc.text(`Generated on: ${now.toLocaleString()}  |  Heavy Fabrication Job Tracker Service`, 14, 287);
 
   doc.save(`manufacturing_jobs_tracker_${reqIdToDownload}_report.pdf`);
 }

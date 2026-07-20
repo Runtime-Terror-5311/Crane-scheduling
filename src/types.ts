@@ -99,6 +99,7 @@ export interface Schedule {
   department?: string;
   secondaryCrane?: string;
   isTandemLift?: boolean;
+  shift?: string;
 }
 
 export interface ShiftReport {

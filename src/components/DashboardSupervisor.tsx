@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar, ShieldCheck, CheckCircle2 } from "lucide-react";
-import { CraneRequest, User, ShiftType, PriorityType, Crane } from "../types";
+import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar, ShieldCheck, CheckCircle2, Zap } from "lucide-react";
+import { CraneRequest, User, ShiftType, PriorityType, Crane, Schedule } from "../types";
 import { getCurrentShift, getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
 import CraneAllocationsTable from "./CraneAllocationsTable";
+import GanttChart from "./GanttChart";
 
 interface DashboardSupervisorProps {
   user: User;
   requests: CraneRequest[];
   cranes: Crane[];
+  schedules?: Schedule[];
   onRequestAdded: (newReq: CraneRequest) => void;
   onRequestDeleted: (id: string) => void;
   onRequestSubmittedBulk: (area: number) => void;
   onRefresh: () => void;
+  onInstantSchedule?: (formData: any) => Promise<{ success: boolean; data?: any; error?: string; isConflict?: boolean; busySchedules?: any[]; availableGaps?: any[] }>;
   initialSubView?: "logboards" | "new-request" | "cranes" | "verification" | "jobs-progress" | "report-jobs";
   onUpdateCrane?: (craneId: string, updatedFields: Partial<Crane>) => void;
   onCreateCrane?: (craneData: any) => Promise<boolean>;
@@ -22,10 +25,12 @@ export default function DashboardSupervisor({
   user,
   requests,
   cranes,
+  schedules = [],
   onRequestAdded,
   onRequestDeleted,
   onRequestSubmittedBulk,
   onRefresh,
+  onInstantSchedule,
   initialSubView,
   onUpdateCrane,
   onCreateCrane,
@@ -341,11 +346,68 @@ export default function DashboardSupervisor({
   const [machineName, setMachineName] = useState("");
   const [mandatoryCrane, setMandatoryCrane] = useState<string>("Any");
   const [formError, setFormError] = useState("");
+  const [conflictInfo, setConflictInfo] = useState<{
+    busySchedules: any[];
+    availableGaps: any[];
+  } | null>(null);
+
+  const setTimeFrom24Hr = (
+    time24: string,
+    setHour: (h: string) => void,
+    setMinute: (m: string) => void,
+    setAmpm: (ampm: string) => void
+  ) => {
+    if (!time24) return;
+    const [hStr, mStr] = time24.split(":");
+    let h = parseInt(hStr, 10);
+    const m = mStr || "00";
+    let ampm = "AM";
+    if (h >= 12) {
+      ampm = "PM";
+      if (h > 12) h -= 12;
+    }
+    if (h === 0) h = 12;
+    setHour(String(h).padStart(2, "0"));
+    setMinute(m.padStart(2, "0"));
+    setAmpm(ampm);
+  };
+
+  const getShiftLimits = (shiftVal: string) => {
+    if (shiftVal === "Shift A") return { start: 6 * 60, end: 14 * 60, label: "06:00 AM - 02:00 PM" };
+    if (shiftVal === "Shift B") return { start: 14 * 60, end: 22 * 60, label: "02:00 PM - 10:00 PM" };
+    if (shiftVal === "Shift C") return { start: 22 * 60, end: 30 * 60, label: "10:00 PM - 06:00 AM (Next Day)" };
+    return { start: 9 * 60, end: 18.5 * 60, label: "09:00 AM - 06:30 PM" }; // General Shift
+  };
+
+  const getShiftTicks = (shiftVal: string) => {
+    const { start, end } = getShiftLimits(shiftVal);
+    const ticks = [];
+    for (let m = start; m <= end; m += 60) {
+      const rawH = Math.floor(m / 60);
+      const h = rawH % 24;
+      const ampm = h >= 12 ? "PM" : "AM";
+      let h12 = h % 12;
+      if (h12 === 0) h12 = 12;
+      ticks.push({
+        mins: m,
+        label: `${h12}:00 ${ampm}`,
+        pct: ((m - start) / (end - start)) * 100
+      });
+    }
+    return ticks;
+  };
+
   const [date, setDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [jobType, setJobType] = useState<"New" | "Continuation">("New");
   const [parentJobId, setParentJobId] = useState<string>("");
+  const [schedulingMode, setSchedulingMode] = useState<"standard" | "instant">("standard");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showSuccessPopup, setShowSuccessPopup] = useState<boolean>(false);
+
+  // Clear conflict state if any scheduling parameter is modified
+  useEffect(() => {
+    setConflictInfo(null);
+  }, [startHour, startMinute, startAmpm, endHour, endMinute, endAmpm, mandatoryCrane, schedulingMode, selectedFormArea, bay]);
 
   useEffect(() => {
     const forcedShift = getForcedShiftForWindow(currentTime);
@@ -355,6 +417,38 @@ export default function DashboardSupervisor({
       setShift(getCurrentShift(currentTime));
     }
   }, [currentTime, currentSubView]);
+
+  useEffect(() => {
+    if (shift === "Shift A") {
+      setStartHour("08");
+      setStartMinute("00");
+      setStartAmpm("AM");
+      setEndHour("09");
+      setEndMinute("00");
+      setEndAmpm("AM");
+    } else if (shift === "Shift B") {
+      setStartHour("02");
+      setStartMinute("00");
+      setStartAmpm("PM");
+      setEndHour("03");
+      setEndMinute("00");
+      setEndAmpm("PM");
+    } else if (shift === "Shift C") {
+      setStartHour("10");
+      setStartMinute("00");
+      setStartAmpm("PM");
+      setEndHour("11");
+      setEndMinute("00");
+      setEndAmpm("PM");
+    } else if (shift === "General Shift") {
+      setStartHour("09");
+      setStartMinute("00");
+      setStartAmpm("AM");
+      setEndHour("10");
+      setStartMinute("00");
+      setStartAmpm("AM");
+    }
+  }, [shift]);
 
   useEffect(() => {
     const validAreas = getAreasForBay(bay);
@@ -378,13 +472,84 @@ export default function DashboardSupervisor({
     setCurrentSubView("new-request");
   };
 
+  const handleForceSchedule = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setFormError("");
+
+    const sCol = Math.min(startColumn, endColumn);
+    const eCol = Math.max(startColumn, endColumn);
+    let finalName = machineName;
+    if (jobType === "Continuation" && !finalName.trim()) {
+      finalName = `Continuation of parent job ${parentJobId} `;
+    }
+
+    try {
+      const payload = {
+        shift,
+        area: Number(selectedFormArea),
+        bay: bay.toUpperCase(),
+        department,
+        column: Math.round((sCol + eCol) / 2),
+        startColumn: sCol,
+        endColumn: eCol,
+        startTime,
+        endTime,
+        weight: Number(weight),
+        priority,
+        remarks,
+        assignedCrane: mandatoryCrane,
+        isTandemLift: false,
+        machineName: finalName,
+        details,
+        jobType,
+        parentJobId: jobType === "Continuation" ? parentJobId : undefined,
+        overrideConflict: true
+      };
+      if (onInstantSchedule) {
+        const res = await onInstantSchedule(payload);
+        if (res?.success) {
+          setDepartment("");
+          setRemarks("");
+          setDetails("");
+          setMachineName("");
+          setMandatoryCrane("Any");
+          setJobType("New");
+          setParentJobId("");
+          setFormError("");
+          setConflictInfo(null);
+          onRefresh();
+          setCurrentSubView("logboards");
+        } else {
+          setFormError(res?.error || "An error occurred during force scheduling.");
+        }
+      }
+    } catch (err: any) {
+      setFormError(err.message || "Network error during force scheduling.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSelectGap = (gapStart24: string, gapEnd24: string) => {
+    setTimeFrom24Hr(gapStart24, setStartHour, setStartMinute, setStartAmpm);
+    setTimeFrom24Hr(gapEnd24, setEndHour, setEndMinute, setEndAmpm);
+    setFormError("");
+    setConflictInfo(null);
+  };
+
   const handleAddOperationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     setFormError("");
 
-    if (!isWindowOpen) {
+    if (schedulingMode === "standard" && !isWindowOpen) {
       setFormError("Form closed. Outside the 10-minute shift transition window.");
+      return;
+    }
+
+    if (schedulingMode === "instant" && (!mandatoryCrane || mandatoryCrane === "Any")) {
+      setFormError("A specific Assigned Crane is required for Instant Scheduling. Please choose a crane instead of 'Any Available Gantry'.");
       return;
     }
 
@@ -415,6 +580,13 @@ export default function DashboardSupervisor({
       return;
     }
 
+    // Validate shift boundaries on the frontend
+    const boundaryCheck = checkShiftBoundaryLocal(startTime, endTime, shift);
+    if (!boundaryCheck.isValid) {
+      setFormError(boundaryCheck.message || "The requested time is outside shift hours.");
+      return;
+    }
+
     if (!department.trim()) {
       setFormError("Department field is required.");
       return;
@@ -436,6 +608,68 @@ export default function DashboardSupervisor({
     // }
 
     setIsSubmitting(true);
+
+    if (schedulingMode === "instant") {
+      if (!onInstantSchedule) {
+        setFormError("Instant scheduling handler is not configured on the app platform.");
+        setIsSubmitting(false);
+        return;
+      }
+      try {
+        const payload = {
+          shift,
+          area: Number(selectedFormArea),
+          bay: bay.toUpperCase(),
+          department,
+          column: Math.round((sCol + eCol) / 2),
+          startColumn: sCol,
+          endColumn: eCol,
+          startTime, // 24hr format
+          endTime,   // 24hr format
+          weight: Number(weight),
+          priority,
+          remarks,
+          assignedCrane: mandatoryCrane,
+          isTandemLift: false,
+          machineName: finalName,
+          details,
+          jobType,
+          parentJobId: jobType === "Continuation" ? parentJobId : undefined
+        };
+        const res = await onInstantSchedule(payload);
+        if (res?.success) {
+          // Reset form
+          setDepartment("");
+          setRemarks("");
+          setDetails("");
+          setMachineName("");
+          setMandatoryCrane("Any");
+          setJobType("New");
+          setParentJobId("");
+          setFormError("");
+          setConflictInfo(null);
+          onRefresh();
+          setCurrentSubView("logboards");
+        } else {
+          setFormError(res?.error || "An error occurred during instant scheduling.");
+          if (res?.isConflict) {
+            setConflictInfo({
+              busySchedules: res.busySchedules || [],
+              availableGaps: res.availableGaps || []
+            });
+          } else {
+            setConflictInfo(null);
+          }
+        }
+      } catch (err: any) {
+        setFormError(err.message || "Network error during instant scheduling.");
+        setConflictInfo(null);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const response = await fetch("/api/requests", {
         method: "POST",
@@ -492,6 +726,60 @@ export default function DashboardSupervisor({
   const parseTimeToMins = (t: string) => {
     const [h, m] = t.split(":").map(Number);
     return h * 60 + m;
+  };
+
+  const formatTimeTo12HrLocal = (timeStr: string): string => {
+    if (!timeStr) return "";
+    const parts = timeStr.split(":");
+    if (parts.length < 2) return timeStr;
+    let h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return timeStr;
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12;
+    if (h === 0) h = 12;
+    const mFormatted = String(m).padStart(2, "0");
+    return `${h}:${mFormatted} ${ampm}`;
+  };
+
+  const checkShiftBoundaryLocal = (startStr: string, endStr: string, shiftVal: string): { isValid: boolean; message?: string } => {
+    const sMins = parseTimeToMins(startStr);
+    let eMins = parseTimeToMins(endStr);
+    
+    if (shiftVal === "Shift A") {
+      const wStart = 6 * 60;
+      const wEnd = 14 * 60;
+      if (eMins < sMins) return { isValid: false, message: "Estimated end time cannot be earlier than start time." };
+      if (sMins < wStart || eMins > wEnd) {
+        return { isValid: false, message: `The selected time (${formatTimeTo12HrLocal(startStr)} to ${formatTimeTo12HrLocal(endStr)}) is not in the Shift A schedule list. Shift A is strictly from 06:00 AM to 02:00 PM.` };
+      }
+    } else if (shiftVal === "Shift B") {
+      const wStart = 14 * 60;
+      const wEnd = 22 * 60;
+      if (eMins < sMins) return { isValid: false, message: "Estimated end time cannot be earlier than start time." };
+      if (sMins < wStart || eMins > wEnd) {
+        return { isValid: false, message: `The selected time (${formatTimeTo12HrLocal(startStr)} to ${formatTimeTo12HrLocal(endStr)}) is not in the Shift B schedule list. Shift B is strictly from 02:00 PM to 10:00 PM.` };
+      }
+    } else if (shiftVal === "Shift C") {
+      const wStart = 22 * 60;
+      const wEnd = 30 * 60;
+      const normStart = sMins < 12 * 60 ? sMins + 24 * 60 : sMins;
+      const normEnd = eMins < 12 * 60 ? eMins + 24 * 60 : eMins;
+      if (normEnd <= normStart) {
+        return { isValid: false, message: "Estimated end time must be strictly after start time." };
+      }
+      if (normStart < wStart || normEnd > wEnd) {
+        return { isValid: false, message: `The selected time (${formatTimeTo12HrLocal(startStr)} to ${formatTimeTo12HrLocal(endStr)}) is not in the Shift C schedule list. Shift C is strictly from 10:00 PM to 06:00 AM (Next Day).` };
+      }
+    } else if (shiftVal === "General Shift") {
+      const wStart = 9 * 60;
+      const wEnd = 18.5 * 60;
+      if (eMins < sMins) return { isValid: false, message: "Estimated end time cannot be earlier than start time." };
+      if (sMins < wStart || eMins > wEnd) {
+        return { isValid: false, message: `The selected time (${formatTimeTo12HrLocal(startStr)} to ${formatTimeTo12HrLocal(endStr)}) is not in the General Shift schedule list. General Shift is strictly from 09:00 AM to 06:30 PM.` };
+      }
+    }
+    return { isValid: true };
   };
 
   const isEditable = (areaNum: number) => {
@@ -896,27 +1184,219 @@ export default function DashboardSupervisor({
               Register New Crane Operation Requirement
             </h3>
             <p className="text-[11px] text-zinc-500 font-mono mt-1 font-bold">
-              Complete all fields to register the crane operation requirement. It will be submitted and queued for scheduling immediately.
+              Complete all fields to register the crane operation requirement. It will be queued or scheduled instantly based on your selection.
             </p>
           </div>
 
-          {!isWindowOpen ? (
+          {/* Scheduling Mode Protocol Selector */}
+          <div className="mb-6 bg-zinc-50 border-2 border-[#141414] p-4 rounded-sm space-y-3.5">
+            <div className="flex items-center gap-2 border-b border-zinc-200 pb-2">
+              <span className="p-1 bg-[#141414] text-white rounded-sm font-mono text-[9px] font-black uppercase">protocol selection</span>
+              <span className="text-[#141414] uppercase tracking-tight text-[11px] font-black font-mono">Select Scheduling Protocol</span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedulingMode("standard");
+                  setFormError("");
+                }}
+                className={`p-3 border-2 rounded-sm text-left flex flex-col justify-between transition-all cursor-pointer ${
+                  schedulingMode === "standard"
+                    ? "border-amber-600 bg-amber-50/50 shadow-[2px_2px_0px_#d97706]"
+                    : "border-zinc-300 hover:border-[#141414] bg-white"
+                }`}
+              >
+                <div className="flex items-center gap-2 font-black text-[#141414] uppercase text-xs">
+                  <ClipboardList className="w-4 h-4 text-amber-600" />
+                  Standard Planning Queue
+                </div>
+                <p className="text-[10px] text-zinc-500 font-bold mt-1.5 leading-normal">
+                  Queue the job request for safety and conflict resolution algorithms. No skill point penalty.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedulingMode("instant");
+                  setFormError("");
+                  if (mandatoryCrane === "Any") {
+                    const matchingCranes = cranes.filter(c => {
+                      const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                      const letter = bayLetters[bay] || "";
+                      return c.id.toUpperCase().startsWith(bay.toUpperCase()) || c.id.toUpperCase().startsWith(letter.toUpperCase());
+                    });
+                    if (matchingCranes.length > 0) {
+                      setMandatoryCrane(matchingCranes[0].id);
+                    }
+                  }
+                }}
+                className={`p-3 border-2 rounded-sm text-left flex flex-col justify-between transition-all cursor-pointer ${
+                  schedulingMode === "instant"
+                    ? "border-emerald-600 bg-emerald-50/50 shadow-[2px_2px_0px_#059669]"
+                    : "border-zinc-300 hover:border-[#141414] bg-white"
+                }`}
+              >
+                <div className="flex items-center gap-2 font-black text-emerald-800 uppercase text-xs">
+                  <Zap className="w-4 h-4 text-emerald-600 fill-emerald-100 animate-pulse" />
+                  Instant Fast-Track
+                </div>
+                <p className="text-[10px] text-zinc-500 font-bold mt-1.5 leading-normal">
+                  Deploys instantly directly onto the active shift timetable. <span className="text-emerald-700 font-black">-5 planning points penalty</span>.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          {schedulingMode === "standard" && !isWindowOpen ? (
             <div className="p-4 bg-red-50 border-2 border-red-500 rounded-sm text-red-950 font-mono text-xs font-bold space-y-3 mb-6">
               <div className="flex items-center gap-1.5 text-red-700 font-black uppercase">
                 <Lock className="w-5 h-5" />
                 Submission Lockout Engaged
               </div>
               <p className="font-sans font-semibold">
-                Requirements entry forms are completely closed outside the 10-minute shift handover windows. You can use the Dev Override checkbox in the header banner to bypass this lockout.
+                Standard queue requirements entry is closed outside the 10-minute handover windows. You can use the Dev Override checkbox in the header banner, or switch to <span className="text-emerald-700 font-black uppercase">Instant Fast-Track</span> to schedule instantly.
               </p>
             </div>
           ) : (
             <form onSubmit={handleAddOperationSubmit} className="space-y-6 font-sans text-xs font-bold">
               
+              {/* Date & Shift Context Configuration */}
+              <div className="bg-zinc-50 border-2 border-[#141414] p-4 rounded-sm shadow-[3px_3px_0px_#141414]">
+                <div className="flex items-center gap-2 border-b border-zinc-200 pb-2 mb-4">
+                  <Calendar className="w-4 h-4 text-zinc-700" />
+                  <span className="text-[#141414] uppercase tracking-tight text-[11px] font-black font-mono">Date & Shift Context Configuration</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Target Operations Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono text-xs focus:ring-0 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Target Work Shift</label>
+                    <select
+                      value={shift}
+                      onChange={(e) => setShift(e.target.value as ShiftType)}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-zinc-900 font-black text-xs focus:ring-0 focus:outline-none"
+                    >
+                      <option value="Shift A">Shift A (06:00 AM - 02:00 PM)</option>
+                      <option value="Shift B">Shift B (02:00 PM - 10:00 PM)</option>
+                      <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
+                      <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {schedulingMode === "instant" && (
+                <div className="bg-amber-50 border-2 border-amber-600 p-3 rounded-sm flex gap-2 text-xs text-amber-950 font-bold mb-4">
+                  <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5 animate-bounce" />
+                  <div>
+                    <p className="uppercase font-black tracking-wider text-amber-950">Managerial Planning Skill Penalty Active (-5 Points)</p>
+                    <p className="font-semibold text-[11px] mt-0.5 leading-normal">
+                      Bypassing the standard planning pipeline will instantly deduct <strong className="text-amber-900 font-black">5 points</strong> from your current monthly balance ({user?.planningPoints ?? 100}/100 pts remaining). This tracks real-time lead planning performance.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {formError && (
                 <div className="p-3 bg-red-50 border-2 border-red-500 text-red-950 rounded-sm flex items-center gap-2 font-bold font-mono text-xs">
                   <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-                  <span>{formError}</span>
+                  <span className="font-extrabold uppercase tracking-wider text-red-900">{formError}</span>
+                </div>
+              )}
+
+              {conflictInfo && (
+                <div className="bg-[#141414] border-4 border-red-500 p-5 rounded-sm text-white space-y-4 shadow-[4px_4px_0px_#ef4444] mb-4">
+                  <div className="flex items-center gap-2 border-b border-zinc-800 pb-2.5">
+                    <span className="p-1 bg-red-600 text-white rounded-sm font-mono text-[9px] font-black uppercase animate-pulse">clash alert</span>
+                    <span className="uppercase tracking-tight text-[11px] font-black font-mono text-red-400">Crane Is Currently Busy</span>
+                  </div>
+
+                  <div className="space-y-3 text-white">
+                    <p className="text-zinc-300 font-sans text-xs font-semibold leading-relaxed">
+                      Gantry Crane <span className="text-white font-black underline">{mandatoryCrane}</span> cannot accept instant scheduling during your requested slot because it has existing work. See when it is busy and select an alternative free gap below:
+                    </p>
+
+                    {/* Busy Schedule List */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-sm p-3 space-y-2">
+                      <p className="font-mono text-[10px] uppercase font-black text-red-400 border-b border-zinc-800 pb-1 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-red-500" />
+                        Gantry Active Timetable Slots (Till When Busy)
+                      </p>
+                      {conflictInfo.busySchedules && conflictInfo.busySchedules.length > 0 ? (
+                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                          {conflictInfo.busySchedules.map((s, idx) => (
+                            <div key={idx} className="flex justify-between items-center text-[11px] border-b border-zinc-800/50 pb-1.5 last:border-0 last:pb-0 font-mono text-zinc-300">
+                              <div>
+                                <span className="font-black text-white">{s.startTime12} - {s.endTime12}</span>
+                                <span className="ml-2 text-zinc-400">({s.department})</span>
+                                <span className="block text-[9px] text-zinc-500 font-sans">{s.machineName} - {s.id}</span>
+                              </div>
+                              <span className="p-1 bg-zinc-800 rounded-sm text-[9px] font-black border border-zinc-700 text-zinc-400">{s.priority}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-zinc-500 italic">No scheduled operations found on this crane.</p>
+                      )}
+                    </div>
+
+                    {/* Available Gaps List */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-sm p-3 space-y-2">
+                      <p className="font-mono text-[10px] uppercase font-black text-emerald-400 border-b border-zinc-800 pb-1 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                        Open Time Gaps Available of {Math.round((parseTimeToMins(endTime) - parseTimeToMins(startTime) + 24*60) % (24*60))} Mins:
+                      </p>
+                      {conflictInfo.availableGaps && conflictInfo.availableGaps.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {conflictInfo.availableGaps.map((gap, idx) => (
+                            <button
+                              type="button"
+                              key={idx}
+                              onClick={() => handleSelectGap(gap.startStr, gap.endStr)}
+                              className="p-2 bg-emerald-950/40 border border-emerald-600/50 hover:bg-emerald-900 hover:border-emerald-500 rounded-sm text-left font-mono transition-all cursor-pointer group flex items-center justify-between text-white w-full"
+                            >
+                              <div>
+                                <span className="block text-white font-black text-xs group-hover:text-emerald-300">{gap.start12} - {gap.end12}</span>
+                                <span className="block text-[9px] text-emerald-500 font-black uppercase">duration: {gap.duration} mins</span>
+                              </div>
+                              <span className="p-1 bg-emerald-600 text-white rounded-sm text-[9px] font-black uppercase flex-shrink-0 ml-2">Use Slot</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-2 border border-dashed border-zinc-800 rounded-sm text-center">
+                          <p className="text-[10px] text-zinc-500 italic">No available free gaps of this duration inside the shift window.</p>
+                          <p className="text-[9px] text-zinc-600 font-sans mt-1">Try choosing a shorter duration or a different crane asset.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Override Button */}
+                    <div className="border-t border-zinc-800 pt-3 flex justify-between items-center gap-4">
+                      <p className="text-[10px] text-zinc-400 leading-normal font-sans">
+                        Do you want to override and shift adjacent jobs anyway? This might shift or delay other department requests based on priority.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleForceSchedule}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-mono text-[10px] font-black uppercase rounded-sm border border-red-500 hover:border-red-400 cursor-pointer flex-shrink-0"
+                      >
+                        Force Override Conflict
+                      </button>
+                    </div>
+
+                  </div>
                 </div>
               )}
 
@@ -1000,7 +1480,7 @@ export default function DashboardSupervisor({
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-[10px] uppercase font-mono font-black text-amber-900 mb-1.5">
                       Select Original/Parent Job (Req ID & Job Name) <span className="text-red-500 font-sans">*</span>
@@ -1009,16 +1489,18 @@ export default function DashboardSupervisor({
                       required={jobType === "Continuation"}
                       value={parentJobId}
                       onChange={(e) => {
-  const pId = e.target.value;
-  setParentJobId(pId);
-  const pReq = requests.find((r) => r.id === pId);
-  if (pReq) {
-    const label = pReq.machineName || "Unnamed Job";
-    setMachineName(` ${label}`);
-  } else {
-    setMachineName("");
-  }
-}}
+                        const pId = e.target.value;
+                        setParentJobId(pId);
+                        const pReq = requests.find((r) => r.id === pId);
+                        if (pReq) {
+                          const label = pReq.machineName || "Unnamed Job";
+                          setMachineName(` ${label}`);
+                          setDepartment(pReq.department || "");
+                        } else {
+                          setMachineName("");
+                          setDepartment("");
+                        }
+                      }}
                       className="w-full p-2.5 bg-white border-2 border-amber-600 rounded-sm text-zinc-900 font-bold font-mono text-xs focus:ring-0 focus:outline-none"
                     >
                       <option value="">-- Choose active or previous job --</option>
@@ -1056,24 +1538,34 @@ export default function DashboardSupervisor({
                       className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-bold text-xs focus:ring-0 focus:outline-none"
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                      Parent Job Original Details <span className="text-zinc-400 font-sans font-normal">(Auto-fetched)</span>
+                    </label>
+                    <textarea
+                      disabled
+                      placeholder="Select parent job to view original details"
+                      value={requests.find((r) => r.id === parentJobId)?.details || ""}
+                      className="w-full p-2.5 bg-zinc-50 border-2 border-zinc-300 rounded-sm font-sans font-medium h-10 text-[10px] text-zinc-600 cursor-not-allowed resize-none focus:outline-none"
+                    />
+                  </div>
                 </div>
               )}
 
-              {/* Details of Shift Work (Only for New Job Type) */}
-              {jobType === "New" && (
-                <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
-                    Details of Shift Work (Precisely what will be done in this shift) <span className="text-red-500 font-sans">*</span>
-                  </label>
-                  <textarea
-                    required
-                    placeholder="Mention precisely what will be done (e.g., welding of this part, assembly of main stator, machining of rotor body, etc.)"
-                    value={details}
-                    onChange={(e) => setDetails(e.target.value)}
-                    className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800 focus:outline-none"
-                  />
-                </div>
-              )}
+              {/* Details of Shift Work */}
+              <div>
+                <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                  {jobType === "Continuation" ? "Details of Continuation Work" : "Details of Shift Work"} (Precisely what will be done in this shift) <span className="text-red-500 font-sans">*</span>
+                </label>
+                <textarea
+                  required
+                  placeholder={jobType === "Continuation" ? "Mention precisely what will be done during this continuation shift..." : "Mention precisely what will be done (e.g., welding of this part, assembly of main stator, machining of rotor body, etc.)"}
+                  value={details}
+                  onChange={(e) => setDetails(e.target.value)}
+                  className="w-full p-3 bg-white border-2 border-[#141414] rounded-sm font-sans font-medium h-24 text-zinc-800 focus:outline-none"
+                />
+              </div>
 
               {/* Priority, Column Start, Column End, Max Weight Row */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1131,7 +1623,7 @@ export default function DashboardSupervisor({
               </div>
 
               {/* Estimated Start, Estimated End and Preferred Crane Row */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-2 border-dashed border-amber-500/50 p-4 rounded bg-amber-50/5">
                 <div>
                   <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Estimated Start (12-Hr AM/PM)</label>
                   <div className="flex items-center justify-between bg-white border-2 border-[#141414] rounded-sm p-1 shadow-[2px_2px_0px_#141414]">
@@ -1241,25 +1733,74 @@ export default function DashboardSupervisor({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">Preferred Crane Pinned Asset</label>
+                  <label className="block text-[10px] uppercase font-mono font-black text-zinc-500 mb-1.5">
+                    {schedulingMode === "instant" ? "Assigned Gantry Crane (Required) *" : "Preferred Crane Pinned Asset"}
+                  </label>
                   <select
                     value={mandatoryCrane}
                     onChange={(e) => setMandatoryCrane(e.target.value)}
-                    className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm text-amber-800 font-black focus:ring-0 focus:outline-none"
+                    className={`w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black focus:ring-0 focus:outline-none ${
+                      schedulingMode === "instant" ? "text-emerald-800 border-emerald-600" : "text-amber-800 border-[#141414]"
+                    }`}
                   >
-                    <option value="Any">Any Available Gantry</option>
+                    <option value="Any" disabled={schedulingMode === "instant"}>
+                      {schedulingMode === "instant" ? "-- Select Assigned Crane --" : "Any Available Gantry"}
+                    </option>
                     {cranes.filter(c => {
                       const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
                       const letter = bayLetters[bay] || "";
                       return c.id.toUpperCase().startsWith(bay.toUpperCase()) || c.id.toUpperCase().startsWith(letter.toUpperCase());
                     }).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name || `Crane ${c.id}`} ({c.id}) Only
+                      <option key={c.id} value={c.id} disabled={c.status === "Breakdown" || c.status === "Maintenance"}>
+                        {c.name || `Crane ${c.id}`} ({c.id}) Only - [{c.status}]
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
+
+              {/* Interactive Gantt Chart Verification Timeline */}
+              {(schedulingMode === "instant" || schedulingMode === "standard") && (
+                <div className="bg-[#141414] border-4 border-[#141414] p-5 rounded-sm text-white space-y-4 shadow-[4px_4px_0px_#86efac] mb-2">
+                  <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1 bg-emerald-600 text-white rounded-sm font-mono text-[9px] font-black uppercase">gantt check</span>
+                      <h3 className="uppercase tracking-tight text-[11px] font-black font-mono text-emerald-400">
+                        Gantry Crane Live Verification Gantt Timeline
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-mono font-black text-emerald-300 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-sm">
+                      {shift} — {date}
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] text-zinc-400 font-semibold leading-normal font-sans">
+                    💡 <strong className="text-emerald-400 font-black">Live Bay Occupancy:</strong> Reusing the primary industrial-grade occupancy timeline. This shows real-time allocated blocks, travel transit, and safety buffers for the active shift and date.
+                  </p>
+
+                  <div className="text-zinc-900 bg-white p-1 rounded-sm">
+                    <GanttChart 
+                      cranes={cranes.filter(c => {
+                        const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                        const letter = bayLetters[bay] || "";
+                        return c.id.toUpperCase().startsWith(bay.toUpperCase()) || c.id.toUpperCase().startsWith(letter.toUpperCase());
+                      })}
+                      schedules={schedules.filter(s => {
+                        const origReq = requests.find((r) => r.id === s.requestId);
+                        const schedDate = origReq?.date || (origReq?.createdAt ? origReq.createdAt.split("T")[0] : date);
+                        return schedDate === date;
+                      })}
+                      requests={requests.filter(r => {
+                        const reqDate = r.date || (r.createdAt ? r.createdAt.split("T")[0] : date);
+                        return reqDate === date;
+                      })}
+                      selectedShift={shift}
+                      selectedCraneFilter={mandatoryCrane === "Any" ? "ALL" : mandatoryCrane}
+                      selectedAreaFilter="ALL"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Form Submit buttons */}
               <div className="flex gap-3 justify-end pt-4 border-t-2 border-zinc-100 font-sans">
@@ -1277,11 +1818,17 @@ export default function DashboardSupervisor({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className={`px-8 py-2.5 bg-[#141414] hover:bg-zinc-800 text-white border-4 border-[#141414] shadow-[4px_4px_0px_#141414] font-black rounded-sm uppercase tracking-wider cursor-pointer active:translate-y-[2px] active:shadow-[2px_2px_0px_#141414] ${
-                    isSubmitting ? "opacity-75 cursor-not-allowed" : ""
-                  }`}
+                  className={`px-8 py-2.5 border-4 border-[#141414] shadow-[4px_4px_0px_#141414] font-black rounded-sm uppercase tracking-wider cursor-pointer active:translate-y-[2px] active:shadow-[2px_2px_0px_#141414] transition-all flex items-center gap-2 ${
+                    schedulingMode === "instant"
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      : "bg-[#141414] hover:bg-zinc-800 text-white"
+                  } ${isSubmitting ? "opacity-75 cursor-not-allowed" : ""}`}
                 >
-                  {isSubmitting ? "Processing Requirement..." : "Create & Submit Requirement"}
+                  {schedulingMode === "instant" && <Zap className="w-4 h-4 text-yellow-300 animate-pulse fill-yellow-300" />}
+                  {isSubmitting 
+                    ? (schedulingMode === "instant" ? "Deploying Allocation..." : "Processing Requirement...") 
+                    : (schedulingMode === "instant" ? "Instantly Deploy Hoist Job (-5 Pts)" : "Create & Submit Requirement")
+                  }
                 </button>
               </div>
             </form>
