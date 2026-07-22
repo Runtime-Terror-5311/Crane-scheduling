@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar, ShieldCheck, CheckCircle2, Zap } from "lucide-react";
+import { Plus, Trash2, Send, Lock, FileSpreadsheet, Eye, RefreshCw, AlertCircle, Clock, ClipboardList, Cpu, Hammer, AlertTriangle, Calendar, ShieldCheck, CheckCircle2, Zap, MapPin } from "lucide-react";
 import { CraneRequest, User, ShiftType, PriorityType, Crane, Schedule } from "../types";
 import { getCurrentShift, getBayForArea, getColumnsForArea, getAreasForBay } from "../utils/shiftUtils";
 import CraneAllocationsTable from "./CraneAllocationsTable";
@@ -1292,6 +1292,105 @@ export default function DashboardSupervisor({
                       <option value="Shift C">Shift C (10:00 PM - 06:00 AM)</option>
                       <option value="General Shift">General Shift (09:00 AM - 06:30 PM)</option>
                     </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Target Area & Crane Controls Configuration */}
+              <div className="bg-amber-50/60 border-2 border-[#141414] p-4 rounded-sm shadow-[3px_3px_0px_#141414] space-y-4">
+                <div className="flex items-center justify-between border-b border-amber-200 pb-2">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-amber-800" />
+                    <span className="text-[#141414] uppercase tracking-tight text-[11px] font-black font-mono">Area &amp; Gantry Crane Controls Configuration</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-extrabold text-amber-900 bg-amber-200 px-2 py-0.5 rounded-sm">
+                    Bay {bay} — Cols {getColumnsForArea(selectedFormArea).min} to {getColumnsForArea(selectedFormArea).max}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-700 mb-1.5">
+                      Target Shop Floor Area <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      disabled={user.role === "Area User"}
+                      value={selectedFormArea}
+                      onChange={(e) => {
+                        const areaNum = Number(e.target.value);
+                        setSelectedFormArea(areaNum);
+                        const assocBay = getBayForArea(areaNum);
+                        setBay(assocBay);
+                        const cols = getColumnsForArea(areaNum);
+                        setStartColumn(cols.min + 2);
+                        setEndColumn(cols.min + 4);
+
+                        const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                        const letter = bayLetters[assocBay] || "";
+                        const matchingCranes = cranes.filter(c => c.id.toUpperCase().startsWith(assocBay) || c.id.toUpperCase().startsWith(letter));
+                        if (matchingCranes.length > 0) {
+                          setMandatoryCrane(matchingCranes[0].id);
+                        } else {
+                          setMandatoryCrane("Any");
+                        }
+                      }}
+                      className="w-full p-2.5 bg-white border-2 border-[#141414] rounded-sm font-black font-mono text-xs focus:ring-0 focus:outline-none disabled:bg-zinc-100 text-amber-950"
+                    >
+                      {Array.from({ length: 22 }, (_, i) => i + 1).map((aNum) => (
+                        <option key={aNum} value={aNum}>
+                          Area {aNum} (Bay {getBayForArea(aNum)}, Runway Cols {getColumnsForArea(aNum).min}-{getColumnsForArea(aNum).max})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono font-black text-zinc-700 mb-1.5">
+                      Active Crane Controls For Area {selectedFormArea}
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMandatoryCrane("Any")}
+                        disabled={schedulingMode === "instant"}
+                        className={`px-3 py-1.5 border-2 rounded-sm font-mono font-black text-[11px] uppercase transition-all cursor-pointer ${
+                          mandatoryCrane === "Any"
+                            ? "bg-[#141414] text-white border-[#141414]"
+                            : "bg-white text-zinc-700 border-zinc-300 hover:border-[#141414]"
+                        } ${schedulingMode === "instant" ? "opacity-40 cursor-not-allowed" : ""}`}
+                      >
+                        Any Available Crane
+                      </button>
+
+                      {cranes.filter(c => {
+                        const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                        const letter = bayLetters[bay] || "";
+                        return c.id.toUpperCase().startsWith(bay.toUpperCase()) || c.id.toUpperCase().startsWith(letter.toUpperCase());
+                      }).map((c) => {
+                        const isSelected = mandatoryCrane === c.id;
+                        const isDisabled = c.status === "Breakdown" || c.status === "Maintenance";
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            disabled={isDisabled}
+                            onClick={() => setMandatoryCrane(c.id)}
+                            className={`px-3 py-1.5 border-2 rounded-sm font-mono font-black text-[11px] uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? "bg-amber-500 text-slate-950 border-slate-950 shadow-[2px_2px_0px_#141414]"
+                                : "bg-white text-zinc-800 border-zinc-300 hover:border-[#141414]"
+                            } ${isDisabled ? "opacity-40 cursor-not-allowed bg-zinc-100" : ""}`}
+                          >
+                            <span>🏗️ Crane {c.id}</span>
+                            <span className={`text-[9px] px-1 py-0.2 rounded font-sans font-bold ${
+                              c.status === "Available" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                            }`}>
+                              [{c.status}]
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -489,10 +489,33 @@ export default function App() {
     }
   };
 
-  const handleAddUser = (newUser: any) => {
-    setUsers((prev) => [...prev, newUser]);
-    setGlobalAlert({ message: `Roster Badge successfully generated: ${newUser.name} (${newUser.employeeId})`, type: "success" });
-    if (user) reloadDatabase(user);
+  const handleAddUser = async (newUser: any): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(newUser),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUsers((prev) => {
+          const filtered = prev.filter((u) => u.employeeId.toUpperCase() !== data.employeeId.toUpperCase());
+          return [...filtered, data];
+        });
+        setGlobalAlert({ message: `Roster Badge successfully generated: ${data.name} (${data.employeeId})`, type: "success" });
+        if (user) reloadDatabase(user);
+        return true;
+      } else {
+        setGlobalAlert({ message: data.error || "Failed to create new user in database.", type: "error" });
+        return false;
+      }
+    } catch (err: any) {
+      setGlobalAlert({ message: err.message || "Network error during user creation.", type: "error" });
+      return false;
+    }
   };
 
   const handleDeleteUser = async (employeeId: string) => {

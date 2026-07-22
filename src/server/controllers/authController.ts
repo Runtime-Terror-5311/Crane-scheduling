@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { readDB, writeDB, logActivity } from "../db/db.js";
+import { getBayForArea } from "../../utils/shiftUtils.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "CRANE_SECRET_SECURE_JWT_KEY_2026";
 
@@ -113,36 +114,54 @@ export const createUser = (req: Request, res: Response): void => {
   const salt = bcrypt.genSaltSync(4);
   const passwordHash = bcrypt.hashSync(password, salt);
 
+  let finalCraneNo = craneNo ? craneNo.trim().toUpperCase() : "";
+  const targetArea = role === "Admin" ? null : (area !== undefined && area !== null ? Number(area) : null);
+
+  // If no crane controls specified for Area User, auto-provide cranes for that area
+  if (!finalCraneNo && role === "Area User" && targetArea) {
+    const assocBay = getBayForArea(targetArea);
+    const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+    const letter = bayLetters[assocBay] || "A";
+    const matchingCranes = db.cranes.filter(c => c.id.toUpperCase().startsWith(assocBay) || c.id.toUpperCase().startsWith(letter)).map(c => c.id);
+    if (matchingCranes.length > 0) {
+      finalCraneNo = matchingCranes.join(", ");
+    } else {
+      finalCraneNo = `${letter}1, ${letter}2`;
+    }
+  }
+
   const newUser = {
     employeeId: employeeId.trim().toUpperCase(),
     name: name.trim(),
     role: role as "Admin" | "Area User",
-    area: role === "Admin" ? null : (area !== undefined && area !== null ? Number(area) : null),
+    area: targetArea,
     phone: phone ? phone.trim() : "",
     email: email ? email.trim() : "",
-    craneNo: craneNo ? craneNo.trim().toUpperCase() : "",
+    craneNo: finalCraneNo,
     passwordHash,
   };
 
   db.users.push(newUser);
 
-  // If a craneNo is specified, auto-create the crane if it doesn't exist
-  const upperCraneNo = newUser.craneNo;
-  if (upperCraneNo) {
-    const craneExists = db.cranes.some((c) => c.id.toUpperCase() === upperCraneNo);
-    if (!craneExists) {
-      db.cranes.push({
-        id: upperCraneNo,
-        name: `Crane ${upperCraneNo}`,
-        capacity: 50,
-        minColumn: 1,
-        maxColumn: 30,
-        currentColumn: 15,
-        status: "Available",
-        maintenanceNotes: `Created automatically for operator ${newUser.name}`,
-      });
-      db.cranes.sort((a, b) => a.id.localeCompare(b.id));
-    }
+  // Parse comma-separated crane IDs and auto-create any that don't exist
+  if (newUser.craneNo) {
+    const craneIds = newUser.craneNo.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
+    craneIds.forEach((cId) => {
+      const craneExists = db.cranes.some((c) => c.id.toUpperCase() === cId);
+      if (!craneExists) {
+        db.cranes.push({
+          id: cId,
+          name: `Crane ${cId}`,
+          capacity: 50,
+          minColumn: 1,
+          maxColumn: 30,
+          currentColumn: 15,
+          status: "Available",
+          maintenanceNotes: `Created automatically for operator ${newUser.name}`,
+        });
+      }
+    });
+    db.cranes.sort((a, b) => a.id.localeCompare(b.id));
   }
 
   writeDB(db);
@@ -199,23 +218,25 @@ export const updateUser = (req: Request, res: Response): void => {
 
   db.users[userIndex] = updatedUser;
 
-  // If a craneNo is specified, auto-create the crane if it doesn't exist
-  const upperCraneNo = updatedUser.craneNo;
-  if (upperCraneNo) {
-    const craneExists = db.cranes.some((c) => c.id.toUpperCase() === upperCraneNo);
-    if (!craneExists) {
-      db.cranes.push({
-        id: upperCraneNo,
-        name: `Crane ${upperCraneNo}`,
-        capacity: 50,
-        minColumn: 1,
-        maxColumn: 30,
-        currentColumn: 15,
-        status: "Available",
-        maintenanceNotes: `Created automatically for operator ${updatedUser.name}`,
-      });
-      db.cranes.sort((a, b) => a.id.localeCompare(b.id));
-    }
+  // Parse comma-separated crane IDs and auto-create any that don't exist
+  if (updatedUser.craneNo) {
+    const craneIds = updatedUser.craneNo.split(",").map((c) => c.trim().toUpperCase()).filter(Boolean);
+    craneIds.forEach((cId) => {
+      const craneExists = db.cranes.some((c) => c.id.toUpperCase() === cId);
+      if (!craneExists) {
+        db.cranes.push({
+          id: cId,
+          name: `Crane ${cId}`,
+          capacity: 50,
+          minColumn: 1,
+          maxColumn: 30,
+          currentColumn: 15,
+          status: "Available",
+          maintenanceNotes: `Created automatically for operator ${updatedUser.name}`,
+        });
+      }
+    });
+    db.cranes.sort((a, b) => a.id.localeCompare(b.id));
   }
 
   writeDB(db);

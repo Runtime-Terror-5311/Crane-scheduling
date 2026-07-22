@@ -16,11 +16,12 @@ import {
   Key
 } from "lucide-react";
 import { User, Crane } from "../types";
+import { getBayForArea } from "../utils/shiftUtils";
 
 interface ManageUsersProps {
   users: User[];
   cranes: Crane[];
-  onAddUser: (newUser: any) => void;
+  onAddUser: (newUser: any) => Promise<boolean | void> | void;
   onUpdateUser: (employeeId: string, updatedFields: any) => Promise<boolean>;
   onDeleteUser: (employeeId: string) => void;
 }
@@ -68,7 +69,7 @@ export default function ManageUsers({
     );
   });
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSuccess("");
@@ -95,18 +96,21 @@ export default function ManageUsers({
       planningPoints: 100
     };
 
-    onAddUser(payload);
-    
-    // Reset state
-    setNewEmpId("");
-    newName && setNewName("");
-    setNewPass("");
-    setNewPhone("");
-    setNewEmail("");
-    setSelectedCranes([]);
-    
-    setSuccess("Staff member successfully registered.");
-    setTimeout(() => setSuccess(""), 4000);
+    const res = await onAddUser(payload);
+    if (res !== false) {
+      // Reset state
+      setNewEmpId("");
+      setNewName("");
+      setNewPass("");
+      setNewPhone("");
+      setNewEmail("");
+      setSelectedCranes([]);
+      
+      setSuccess("Staff member successfully registered and saved to database.");
+      setTimeout(() => setSuccess(""), 4000);
+    } else {
+      setError("Failed to create staff account in database. Check server logs or duplicate employee ID.");
+    }
   };
 
   const startEdit = (u: User) => {
@@ -570,7 +574,18 @@ export default function ManageUsers({
                     <select
                       disabled={newRole === "Admin"}
                       value={newArea}
-                      onChange={(e) => setNewArea(Number(e.target.value))}
+                      onChange={(e) => {
+                        const areaNum = Number(e.target.value);
+                        setNewArea(areaNum);
+                        // Auto select cranes for this area's bay
+                        const assocBay = getBayForArea(areaNum);
+                        const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                        const letter = bayLetters[assocBay] || "A";
+                        const areaCranes = cranes.filter(c => c.id.toUpperCase().startsWith(assocBay) || c.id.toUpperCase().startsWith(letter)).map(c => c.id);
+                        if (areaCranes.length > 0) {
+                          setSelectedCranes(areaCranes);
+                        }
+                      }}
                       className="w-full p-2 border-2 border-[#141414] bg-white font-sans text-xs font-bold disabled:bg-zinc-100"
                     >
                       {Array.from({ length: 22 }, (_, i) => i + 1).map((areaNum) => (
@@ -582,9 +597,24 @@ export default function ManageUsers({
 
                 {/* Crane Multi Checkboxes (Critical User Request) */}
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-500 mb-2 flex items-center gap-1">
-                    <Hammer className="w-3 h-3 text-amber-500" /> Map Supervised Cranes (Check Multiple)
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-[9px] uppercase font-black text-zinc-500 flex items-center gap-1">
+                      <Hammer className="w-3 h-3 text-amber-500" /> Area {newArea} Crane Controls
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const assocBay = getBayForArea(newArea);
+                        const bayLetters: Record<string, string> = { "1": "A", "2": "B", "3": "C", "4": "D", "5": "E", "6": "F", "7": "G" };
+                        const letter = bayLetters[assocBay] || "A";
+                        const areaCranes = cranes.filter(c => c.id.toUpperCase().startsWith(assocBay) || c.id.toUpperCase().startsWith(letter)).map(c => c.id);
+                        setSelectedCranes(areaCranes.length > 0 ? areaCranes : [`${letter}1`, `${letter}2`]);
+                      }}
+                      className="text-[9px] font-mono text-amber-700 underline font-bold hover:text-amber-900 cursor-pointer"
+                    >
+                      Auto-Assign Area {newArea} Controls
+                    </button>
+                  </div>
                   <div className="border-2 border-[#141414] rounded-sm p-3 max-h-40 overflow-y-auto grid grid-cols-2 gap-2 bg-zinc-50">
                     {cranes.map((c) => {
                       const isChecked = selectedCranes.includes(c.id);
